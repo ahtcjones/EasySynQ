@@ -63,12 +63,17 @@ coverage*.json
 coverage*.xml
 coverage*.info
 
-# Local data — EasySynQ specific
-**/EasySynQ_Master.db
-**/EasySynQ_Master.db-shm
-**/EasySynQ_Master.db-wal
-**/snapshots/
-**/vault/
+# Local runtime data — EasySynQ specific
+# Anchored to the repo root so the patterns do not catch source folders
+# with the same name (e.g., src/EasySynQ.Domain/Entities/Snapshots/).
+# Windows is case-insensitive by default for git, so unanchored
+# `**/snapshots/` matched `Entities/Snapshots/` and silently excluded
+# its contents.
+/EasySynQ_Master.db
+/EasySynQ_Master.db-shm
+/EasySynQ_Master.db-wal
+/snapshots/
+/vault/
 *.log
 
 # OS

@@ -1,3 +1,5 @@
+using EasySynQ.Domain.Common;
+
 namespace EasySynQ.Domain.ValueObjects;
 
 /// <summary>
@@ -62,7 +64,7 @@ public sealed record SignaturePayload
                 nameof(utcTimestamp));
         }
 
-        if (payloadHash.Length != 64 || !IsLowercaseHex(payloadHash))
+        if (!HashFormat.IsValidSha256Hex(payloadHash))
         {
             throw new ArgumentException(
                 "PayloadHash must be exactly 64 lowercase hexadecimal characters.",
@@ -73,18 +75,5 @@ public sealed record SignaturePayload
         UtcTimestamp = utcTimestamp;
         RoleAtTimeOfSign = roleAtTimeOfSign;
         PayloadHash = payloadHash;
-    }
-
-    private static bool IsLowercaseHex(string s)
-    {
-        foreach (var c in s)
-        {
-            var isHexDigit = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
-            if (!isHexDigit)
-            {
-                return false;
-            }
-        }
-        return true;
     }
 }

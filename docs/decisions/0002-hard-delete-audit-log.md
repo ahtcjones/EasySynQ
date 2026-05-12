@@ -75,6 +75,18 @@ The phrase "hard delete" in this codebase therefore means: **gone from the opera
   - Transaction atomicity: induced audit-write failure rolls back the operational delete.
   - The `before` JSON can be deserialized back into the original entity shape (round-trip).
 
+## Required Tests (Phase 1 data-layer scope)
+
+The audit-log invariant — *every* compliance-critical CUD operation produces a corresponding `AuditLogEntry`, including hard-deletes — is load-bearing for the entire compliance story. It cannot be left to incidental coverage. The following tests are **mandatory** as part of the Phase 1 data-layer implementation; the Phase 1 data-layer prompt inherits this requirement from this ADR:
+
+(a) **Every CUD operation writes a matching `AuditLogEntry`.** Integration tests exercising insert, update, soft-delete, and hard-delete on a compliance-critical entity (e.g., a fixture entity dedicated to this test, or `User` once Identity ships) and verifying the corresponding `AuditLogEntry` row exists with the correct `Action`, populated `Before` / `After` per the shape rules in §3.4 and this ADR, and a non-empty `CorrelationId`. Each action type gets its own test.
+
+(b) **Raw-SQL bypass attempts via `ExecuteSqlRaw` are either rejected by the data layer or produce a compensating audit entry.** The audit-log invariant depends on the EF Core `SaveChangesInterceptor` firing. A `DbContext.Database.ExecuteSqlRaw(...)` (or `ExecuteSqlInterpolated`) call against a compliance-critical table would bypass change tracking, so the data layer must either:
+1. Restrict the raw-SQL surface to read-only paths (writes via the raw escape hatch are rejected by repository or context wrappers); or
+2. Detect raw-SQL writes and emit a compensating audit entry that records the event as `Update` (or `Delete` / `HardDelete` as appropriate) with the best-available snapshot, plus an explicit marker indicating the row was produced by the bypass-detection path rather than by change tracking.
+
+The chosen mechanism is a Phase 1 data-layer decision; this ADR just ensures the invariant survives whichever path is picked. The test must fail-loud if a raw-SQL write succeeds without producing an audit-log row.
+
 ## References
 
 - `docs/SPEC.md` §3.4 — Audit Trail

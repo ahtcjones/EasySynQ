@@ -96,6 +96,7 @@ The deployment environment has specific properties that shaped the technology ch
 - SQLite over SMB is fragile under high concurrency. **Mitigation:** Local Service Mode designed in from day one; concurrency tested at Phase 11 (Hardening).
 - WPF locks us to Windows. **Mitigation:** Acceptable — pilot and target customers are Windows shops; the cost of cross-platform support outweighs the benefit.
 - Self-managed authentication is one more thing to get right (password hashing, brute-force protection, session management). **Mitigation:** Use PBKDF2 or Argon2id, follow OWASP recommendations, document the auth model in a separate ADR before Phase 1 ships.
+- Naming collision between deployment-time directories (`vault/`, `snapshots/`) and same-shape source folders (`src/EasySynQ.Domain/Entities/Snapshots/`, `src/EasySynQ.Data/Vault/`, etc.). On Windows's case-insensitive filesystem, unanchored `.gitignore` patterns like `**/snapshots/` silently swallow the source folders. **Mitigation:** root-anchored patterns (`/vault/`, `/snapshots/`) in `.gitignore`. Discovered when a source file in `Entities/Snapshots/` compiled fine locally but refused to be tracked by git; surfaced in Phase 1 Domain-entities work.
 
 ### Decisions deferred to future ADRs
 - ORM choice (EF Core vs Dapper) — ADR 0002, before Phase 1 implementation.
