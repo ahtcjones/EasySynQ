@@ -129,3 +129,39 @@ ADR 0001 (Stack Choice) originally projected future ADRs as `0002 — Document V
 Auth ADR and Packaging ADR are the next open slots (0006, 0007).
 
 ---
+
+## 2026-05-12 (follow-up) — CLAUDE.md hygiene pass
+
+After the data-layer handoff entry above, one additional commit landed: a `CLAUDE.md` audit + sync pass. No code, services, tests, or specs changed.
+
+### What changed
+
+Commit `99f2491 docs: CLAUDE.md hygiene — sync stale references, add standing rules` updated `CLAUDE.md` in seven spots:
+
+- "Full specification, Revision 2" → revision number dropped (SPEC.md's own Revision History table is now the source).
+- Bootstrap reading list: "ADR 0001" → "every ADR in `docs/decisions/`" + most recent `SESSION_NOTES.md` entry.
+- Non-Negotiable Rule #10 added: no AI attribution anywhere in repo content. This was previously only in auto-memory (`feedback_no_ai_attribution.md`), which doesn't load for anyone reading the repo cold.
+- "What I always want with new code" gained a bullet: services consume `IRepository<,>` / `IUnitOfWork` rather than injecting `EasySynQDbContext` directly (ADR 0002's first defense layer against audit bypass).
+- Repository Layout: `EasySynQ.Tests` description corrected — `xUnit + Moq + FluentAssertions` → `xUnit v3 + Moq + AwesomeAssertions` (FluentAssertions was swapped in SPEC Rev 3.1 for license reasons).
+- Repository Layout: `EasySynQ.sln` → `EasySynQ.slnx` (matches the .NET 10 XML solution format actually in use).
+- Repository Layout: `EasySynQ.Services` description now mentions the cross-cutting abstractions it hosts (IClock, ICurrentUserAccessor, IAuditCorrelationProvider, ITemporalResolver) and points at ADR 0003 for the Data → Services direction.
+
+### Why this matters for the next session
+
+The previous handoff entry above flagged several conventions ("**No AI attribution in repo content**" at line 117, the Services-consume-repositories pattern, the corrected ADR numbering at line 121) as "not in CLAUDE.md yet". They are in CLAUDE.md now. The handoff note's text is left as-written for historical accuracy, but anyone reading CLAUDE.md cold for the next session will find those rules without needing to also load the handoff note.
+
+### Working tree state
+
+```
+99f2491 docs: CLAUDE.md hygiene — sync stale references, add standing rules
+e40dd50 Session handoff note: end of data layer, ready for services
+3510102 Data layer chunk C: repository pattern, UnitOfWork, host wiring
+```
+
+Working tree clean. Branch: `master`. Still no remote configured. Test count unchanged at 146; no code touched.
+
+### Forward plan
+
+Unchanged from the entry above. Next chunk in dependency order is still **Auth service → Signature service → Snapshot service → Shell UI** with the login window threaded into the Shell UI work. ADR 0006 (Auth Specifics) is the next ADR to write.
+
+---
