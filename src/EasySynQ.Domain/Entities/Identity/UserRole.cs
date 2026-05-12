@@ -42,6 +42,23 @@ public class UserRole : AuditableEntity, IEffectiveDated
     public EffectiveDateRange EffectivePeriod { get; protected set; } = null!;
 
     /// <summary>
+    /// Navigation to the <see cref="User"/> holding the role. Populated by
+    /// EF Core when the <see cref="UserRole"/> is loaded with
+    /// <c>.Include(ur => ur.User)</c>; otherwise default <see langword="null"/>
+    /// (despite the non-nullable type — the standard EF Core pattern for
+    /// required navigations).
+    /// </summary>
+    public User User { get; protected set; } = null!;
+
+    /// <summary>
+    /// Navigation to the <see cref="Role"/> held. Populated by EF Core
+    /// when the <see cref="UserRole"/> is loaded with
+    /// <c>.Include(ur => ur.Role)</c>; otherwise default
+    /// <see langword="null"/>.
+    /// </summary>
+    public Role Role { get; protected set; } = null!;
+
+    /// <summary>
     /// Returns <see langword="true"/> when this assignment is active at
     /// the supplied UTC instant. Delegates to
     /// <see cref="EffectivePeriod"/>'s
