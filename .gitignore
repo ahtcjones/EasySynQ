@@ -92,3 +92,9 @@ notes.local.md
 
 # Tooling — Claude Code session state (kept local to the working tree)
 .claude/
+
+# Commit-message scratchpad. We sometimes write long commit messages to a
+# temp file and pass it via `git commit -F`; this pattern keeps the file
+# out of `git add .` and out of any future accidental commits.
+git-msg.tmp
+git-msg-*.tmp
