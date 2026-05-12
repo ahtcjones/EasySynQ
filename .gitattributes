@@ -1,0 +1,4 @@
+# Normalize line endings to LF in the repo and the working tree.
+# Eliminates "LF will be replaced by CRLF" warnings on Windows
+# and keeps diffs and blame clean across editors and machines.
+* text=auto eol=lf
