@@ -84,3 +84,6 @@ desktop.ini
 # Dev scratchpad
 scratch/
 notes.local.md
+
+# Tooling — Claude Code session state (kept local to the working tree)
+.claude/

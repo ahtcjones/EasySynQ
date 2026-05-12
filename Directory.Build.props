@@ -1,0 +1,30 @@
+<Project>
+
+  <!--
+    Solution-wide MSBuild defaults for EasySynQ.
+
+    Strict baseline:
+      * Nullable reference types enabled.
+      * Implicit usings enabled (matches the default class-library template).
+      * Latest C# language version.
+      * Warnings as errors — CLAUDE.md Definition of Done requires zero
+        warnings to merge. Compiler warnings (CS-prefix) and analyzer
+        warnings are both promoted via this property.
+      * EnforceCodeStyleInBuild + AnalysisLevel = latest-recommended pulls
+        in the .NET SDK's recommended analyzer set at warning severity,
+        which combined with TreatWarningsAsErrors fails the build on any
+        recommended-rule violation. .editorconfig at the solution root
+        pins individual diagnostic severities where the default needs
+        to differ.
+  -->
+
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+  </PropertyGroup>
+
+</Project>

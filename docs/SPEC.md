@@ -1,6 +1,6 @@
 # EasySynQ — Comprehensive Coding Project Prompt
 **A Quality Management System for ISO 9001:2015 Compliance**
-**Revision 3 · May 2026**
+**Revision 3.1 · May 2026**
 
 ---
 
@@ -11,6 +11,7 @@
 | 1 | Initial | Original specification |
 | 2 | May 2026 | Refined after UI prototyping. Repositioned around ISO 9001:2015 as the base product with industry-specific compliance as optional modules. Added five new core modules (Risk Register, Management Review, Competency Matrix, Material & Lot Traceability, Supplier Management). Refined Production Control's QA Review into three discrete signature gates. Added effective-dating for configuration values. Introduced content-addressed Document Vault, tiered snapshot retention, the "Why is this locked?" inspector, reverse-pulse tiles, print-friendly views, the Customer Portal Export, and an optional Local Service Mode topology. Deferred deep-link filter URLs to v2. |
 | 3 | May 2026 | Spec amendments after first review pass. Pinned hard-delete audit-log behavior — every hard delete writes a permanent `HardDelete` audit row with a full pre-delete snapshot (§3.5; see ADR 0002). Added a `RequiredSOPs` collection on Part Master as the single authoritative source for which controlled procedures apply to a job, with a compatibility-review cascade when an SOP revision is approved (§5.3, §5.9). Defined the valid evidence types for CAPA effectiveness verification (§5.4). Reserved the purple accent in the UI palette exclusively for cross-cutting linkage affordances — linked records, module surfaces, concession references — never for severity (§4.4). |
+| 3.1 | May 2026 | License-driven dependency swap. Replaced FluentAssertions in §2 with **AwesomeAssertions** (a community fork of FluentAssertions 7 maintained under MIT) after FluentAssertions 8.x shifted to a commercial license in early 2025. API-compatible; no test code changes implied. |
 
 ---
 
@@ -54,7 +55,7 @@ The product is intentionally **domain-agnostic at its core**. Heat-treat-specifi
 | Charts | LiveCharts2 or lightweight SVG equivalent | Re-evaluate at Phase 9 — most dashboard needs are simple enough that a smaller dependency is preferable if available |
 | PDF Viewing | Embedded WPF rendering | PdfiumViewer, WebView2, or equivalent — rendering method is implementation detail; the constraint is **no external app opens** |
 | Logging | Serilog with rolling file sink | Structured logging |
-| Testing | xUnit + Moq + FluentAssertions | Unit + integration tests required |
+| Testing | xUnit + Moq + AwesomeAssertions | Unit + integration tests required. AwesomeAssertions is the MIT-licensed community fork of FluentAssertions 7; FluentAssertions 8+ went commercial. |
 | Packaging | MSIX or ClickOnce | Centralized version pin |
 
 **Hard rules:**

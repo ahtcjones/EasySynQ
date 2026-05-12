@@ -1,0 +1,88 @@
+# EasySynQ — solution-wide editorconfig
+#
+# Build-failing policy is set in Directory.Build.props:
+#   <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+#   <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+#   <AnalysisLevel>latest-recommended</AnalysisLevel>
+#
+# This file pins formatting and selects which IDE/style rules participate
+# at warning severity (and therefore as build errors via the above).
+# Anything left at the SDK default falls through to latest-recommended.
+
+root = true
+
+# ----------------------------------------------------------------------------
+# All files
+# ----------------------------------------------------------------------------
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 4
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# ----------------------------------------------------------------------------
+# Markup, project, and config files use 2-space indent
+# ----------------------------------------------------------------------------
+[*.{xml,xaml,csproj,props,targets,json,yml,yaml,resx}]
+indent_size = 2
+
+# ----------------------------------------------------------------------------
+# Markdown preserves trailing whitespace (used for hard line breaks)
+# ----------------------------------------------------------------------------
+[*.md]
+trim_trailing_whitespace = false
+
+# ----------------------------------------------------------------------------
+# C# rules
+# ----------------------------------------------------------------------------
+[*.cs]
+
+# --- usings ---
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# IDE0005 (unused usings) requires GenerateDocumentationFile=true to fire at
+# build, which would cascade CS1591 (missing XML doc) onto every undocumented
+# public member — too noisy for the empty scaffold. The IDE still surfaces
+# IDE0005 during development. Re-enable per-project once public APIs have
+# XML docs (CLAUDE.md DoD item).
+#
+# IDE0051 / IDE0052 (unused / unread private members) are left at the SDK's
+# latest-recommended default severity.
+
+# --- nullability ---
+# These are CS-prefix compiler diagnostics; <Nullable>enable</Nullable> already
+# emits them as warnings, and TreatWarningsAsErrors promotes them to errors.
+# Listed here for visibility; the severity assignment is a no-op confirmation.
+dotnet_diagnostic.CS8600.severity = error  # converting null literal to non-nullable
+dotnet_diagnostic.CS8602.severity = error  # dereference of a possibly null reference
+dotnet_diagnostic.CS8603.severity = error  # possible null reference return
+dotnet_diagnostic.CS8618.severity = error  # non-nullable field uninitialized
+
+# --- naming conventions ---
+#
+# Naming-rule violations surface as the IDE1006 diagnostic. Like IDE0005, this
+# diagnostic is silent at build time unless explicitly promoted, regardless of
+# EnforceCodeStyleInBuild. Promote it here so the rules below actually fail
+# the build and not just the IDE.
+dotnet_diagnostic.IDE1006.severity = warning
+
+# Interfaces must be prefixed with I
+dotnet_naming_rule.interfaces_must_be_prefixed.severity = warning
+dotnet_naming_rule.interfaces_must_be_prefixed.symbols = interface_symbols
+dotnet_naming_rule.interfaces_must_be_prefixed.style = i_prefix_pascal
+dotnet_naming_symbols.interface_symbols.applicable_kinds = interface
+dotnet_naming_symbols.interface_symbols.applicable_accessibilities = public,internal,private,protected,protected_internal,private_protected
+dotnet_naming_style.i_prefix_pascal.required_prefix = I
+dotnet_naming_style.i_prefix_pascal.capitalization = pascal_case
+
+# Async methods must end with Async
+dotnet_naming_rule.async_methods_must_be_suffixed.severity = warning
+dotnet_naming_rule.async_methods_must_be_suffixed.symbols = async_method_symbols
+dotnet_naming_rule.async_methods_must_be_suffixed.style = async_suffix_pascal
+dotnet_naming_symbols.async_method_symbols.applicable_kinds = method
+dotnet_naming_symbols.async_method_symbols.required_modifiers = async
+dotnet_naming_style.async_suffix_pascal.required_suffix = Async
+dotnet_naming_style.async_suffix_pascal.capitalization = pascal_case

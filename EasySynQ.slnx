@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/EasySynQ.Data/EasySynQ.Data.csproj" />
+    <Project Path="src/EasySynQ.Domain/EasySynQ.Domain.csproj" />
+    <Project Path="src/EasySynQ.Services/EasySynQ.Services.csproj" />
+    <Project Path="src/EasySynQ.Tests/EasySynQ.Tests.csproj" />
+    <Project Path="src/EasySynQ.UI/EasySynQ.UI.csproj" />
+  </Folder>
+</Solution>
