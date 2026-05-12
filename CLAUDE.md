@@ -1,0 +1,151 @@
+# EasySynQ — Claude Code Context
+
+**Read this file completely at the start of every session.** It is the source of truth for how to work in this repo.
+
+---
+
+## Project Summary
+
+EasySynQ is a desktop Quality Management System for ISO 9001:2015 compliance. The base product is domain-agnostic. Industry-specific compliance (AS9100, AMS 2750, IATF 16949, CQI-9) is delivered as optional plugin-style modules.
+
+**Pilot deployment:** Heat treating and metallurgy facility in Anniston, Alabama.
+
+---
+
+## Source of Truth
+
+| Document | Purpose |
+|---|---|
+| `docs/SPEC.md` | Full specification, Revision 2. The authoritative document. |
+| `docs/UI_PROTOTYPE.html` | Visual reference. Open in a browser to see intended layout, color discipline, and interaction patterns. |
+| `docs/screenshots/` | Static screenshots of the prototype for quick reference without opening the HTML. |
+| `docs/decisions/` | Architectural Decision Records. Read these to understand *why* the spec says what it does. |
+
+**Before starting any work, also read:**
+- ADR `docs/decisions/0001-stack-choice.md`
+
+---
+
+## Non-Negotiable Rules
+
+These rules come from `docs/SPEC.md` and must never be violated, even if a request seems to ask for it:
+
+1. **Effective dating is mandatory** for any configuration value that affects compliance evaluation. See SPEC.md §3.7. Historical records are evaluated against the configuration in effect at the *event timestamp*, not the current configuration.
+
+2. **Soft-delete boundary is explicit.** Records become immutable-soft-delete-only the moment they (a) carry a signature, or (b) are referenced by a signed record. Before either, the author may hard-delete drafts. See SPEC.md §3.5.
+
+3. **Document Vault is content-addressed.** SHA-256 of file content is the filename, in a flat (or 2-char sharded) directory. Human-readable paths live in the database only. Files are never renamed or moved on disk. See SPEC.md §3.6.
+
+4. **Every signable entity has standard fields:** `CreatedBy`, `CreatedUtc`, `ModifiedBy`, `ModifiedUtc`, `RowVersion`, `IsDeleted`, `LockedAtUtc`.
+
+5. **Every lockout state populates a LockReason chain** for the "Why is this locked?" inspector (SPEC.md §4.3). This is a functional requirement, not a UI nicety.
+
+6. **Audit log is append-only.** Never editable from the UI, never bypassed by any service.
+
+7. **No cloud services.** No third-party identity providers. No external PDF viewers. Period.
+
+8. **All datetimes stored in UTC.** Displayed in local time (America/Chicago for pilot).
+
+9. **No new dependencies without flagging it first.** The stack is intentionally lean (see ADR 0001). Adding a NuGet package is a decision, not a convenience.
+
+---
+
+## UI Conformance
+
+Match `docs/UI_PROTOTYPE.html` strictly:
+
+- **Color discipline:** Red = lockout/failure. Green = pass/approved. Amber = review needed. Blue = informational/in-progress. No color-only signaling — pair every color with an icon.
+- **Density:** The prototype's information density is the target. Do not over-pad.
+- **Pulse pattern:** Slide-out drawer triggered from the topbar, not a horizontal banner.
+- **Lock inspector:** Every red banner, lock icon, or OOS indicator must be clickable and surface the causal chain.
+- **Print stylesheets:** Required on every detail view. Tested against US Letter. See SPEC.md §4.5.
+- **Reverse-pulse / "good news" tiles:** Required. Don't ship a dashboard that only shows problems.
+
+---
+
+## Working Style
+
+### Phase order
+Build per SPEC.md §9. Do not skip ahead. Phases:
+
+1. Foundation
+2. Document Controller
+3. Risk Register + Supplier Management
+4. Competency Matrix
+5. Assets & PM
+6. Material & Lot Traceability
+7. Production Control
+8. NCR / CAPA
+9. Internal Auditing + Management Review
+10. Data Intelligence
+11. Hardening
+
+### Stop points
+Within a phase, stop at meaningful boundaries and let me review before continuing. Specifically, stop after:
+- Project structure / solution scaffolding
+- Domain entities for the phase
+- Service-layer implementation
+- UI shell for the phase
+- Tests at green
+
+Do not run a full phase end-to-end in one shot.
+
+### What to do when uncertain
+- If the spec is ambiguous: ask. Do not guess. Cite the SPEC.md section that triggered the question.
+- If you encounter a real conflict between the spec and the prototype: flag it, explain both sides, and wait for direction.
+- If you want to introduce a pattern the spec doesn't establish: propose it, explain trade-offs, wait for approval. Then write an ADR.
+
+### What I always want with new code
+- XML doc comments on public service methods
+- Unit + integration tests; coverage maintained
+- Audit log writes verified in tests for state transitions
+- A user manual section drafted alongside each new module
+- No new compiler warnings; no new linter violations
+
+---
+
+## Definition of Done (per feature)
+
+A feature is "done" only when **all** of the following are true (SPEC.md §10):
+
+- [ ] Implements the spec without scope creep
+- [ ] Has unit and integration tests; coverage maintained
+- [ ] Writes to the audit log where applicable
+- [ ] Uses digital signatures where applicable
+- [ ] Respects role-based authorization
+- [ ] Honors effective-dating where configuration-bearing
+- [ ] Any new lockout populates the LockReason chain
+- [ ] Has a print-friendly rendering for detail views
+- [ ] Has a user manual section drafted
+- [ ] Passes a manual auditor-perspective walkthrough: "Could I prove this happened to a third-party assessor?"
+- [ ] No new compiler warnings or linter violations
+
+---
+
+## Repository Layout
+
+```
+EasySynQ/
+├── docs/                        ← specification, prototype, ADRs
+├── src/
+│   ├── EasySynQ.Domain/         ← POCO entities, value objects, enums
+│   ├── EasySynQ.Data/           ← EF Core, repositories, migrations
+│   ├── EasySynQ.Services/       ← business logic, state machines, signatures
+│   ├── EasySynQ.UI/             ← WPF, MVVM
+│   └── EasySynQ.Tests/          ← xUnit + Moq + FluentAssertions
+├── CLAUDE.md                    ← this file
+├── README.md
+└── EasySynQ.sln
+```
+
+---
+
+## Spec Drift
+
+The spec will need amendments as we build. When that happens:
+1. Update `docs/SPEC.md` directly in the same commit as the code change.
+2. Bump the revision number at the top.
+3. If the change is architectural, add an ADR.
+4. Never let a code change introduce a behavior the spec doesn't describe.
+
+A spec that lies is worse than no spec.

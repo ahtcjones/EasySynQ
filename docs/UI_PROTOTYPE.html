@@ -1,0 +1,1802 @@
+<div id="app"></div>
+
+<style>
+  :root {
+    --bg: #0f1419; --surface: #161c24; --surface-2: #1d242e; --surface-3: #252d39;
+    --border: #2a3441; --border-strong: #3a4654;
+    --text: #e6edf3; --text-dim: #9aa7b4; --text-faint: #6b7785;
+    --accent: #4a9eff; --accent-dim: #2d5a8f;
+    --green: #3fb950; --green-bg: #0f2e1a;
+    --amber: #d29922; --amber-bg: #2e2410;
+    --red: #f85149; --red-bg: #2e1414;
+    --purple: #a371f7;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --mono: "SF Mono", Monaco, "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 13px; line-height: 1.5; overflow: hidden; }
+  .app-shell { display: grid; grid-template-rows: 56px 1fr; height: 100vh; position: relative; }
+
+  /* TOPBAR */
+  .topbar { background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; gap: 16px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 15px; letter-spacing: -0.01em; }
+  .brand-mark { width: 28px; height: 28px; background: linear-gradient(135deg, var(--accent), var(--purple)); border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: white; }
+  .brand-suffix { color: var(--text-dim); font-weight: 500; font-size: 12px; }
+  .module-chip { display: flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; font-size: 11px; color: var(--text-dim); cursor: pointer; transition: all 0.1s; }
+  .module-chip:hover { border-color: var(--accent); background: var(--surface-3); color: var(--text); }
+  .module-chip .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  .breadcrumb { color: var(--text-dim); font-size: 12px; display: flex; align-items: center; gap: 8px; min-width: 0; flex-shrink: 1; overflow: hidden; }
+  .breadcrumb span:last-child { color: var(--text); white-space: nowrap; }
+  .breadcrumb .sep { color: var(--text-faint); }
+  .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+
+  /* PULSE BUTTON */
+  .pulse-btn { display: flex; align-items: center; gap: 10px; padding: 6px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--text); transition: all 0.1s; }
+  .pulse-btn:hover { border-color: var(--border-strong); background: var(--surface-3); }
+  .pulse-btn-label { font-weight: 600; letter-spacing: 0.02em; }
+  .pulse-btn-count { display: flex; align-items: center; gap: 4px; font-family: var(--mono); font-weight: 700; }
+  .pulse-btn-count.red { color: var(--red); }
+  .pulse-btn-count.amber { color: var(--amber); }
+  .pulse-btn-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 0 currentColor; animation: pulse-glow 2s ease-in-out infinite; }
+  @keyframes pulse-glow { 0%, 100% { box-shadow: 0 0 0 0 currentColor; } 50% { box-shadow: 0 0 0 4px transparent; } }
+  .pulse-btn-chevron { color: var(--text-faint); font-size: 10px; }
+
+  .search { background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; width: 240px; color: var(--text-dim); font-size: 12px; display: flex; align-items: center; gap: 8px; }
+  .search-kbd { margin-left: auto; padding: 1px 6px; background: var(--surface-3); border-radius: 3px; font-family: var(--mono); font-size: 10px; }
+  .user-chip { display: flex; align-items: center; gap: 8px; padding: 4px 10px 4px 4px; background: var(--surface-2); border-radius: 20px; border: 1px solid var(--border); cursor: pointer; }
+  .user-avatar { width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, #f85149, #d29922); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; }
+  .user-name { font-size: 12px; }
+  .user-role { font-size: 10px; color: var(--text-dim); }
+
+  /* MAIN */
+  .main { display: grid; grid-template-columns: 240px 1fr; overflow: hidden; }
+
+  /* NAV */
+  .nav { background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; padding: 16px 0; }
+  .nav-section { padding: 0 12px; margin-bottom: 14px; }
+  .nav-label { font-size: 10px; font-weight: 700; letter-spacing: 0.1em; color: var(--text-faint); text-transform: uppercase; padding: 6px 8px; }
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text-dim); transition: all 0.1s; }
+  .nav-item:hover { background: var(--surface-2); color: var(--text); }
+  .nav-item.active { background: var(--accent-dim); color: var(--text); }
+  .nav-item.active .nav-icon { color: var(--accent); }
+  .nav-icon { width: 16px; text-align: center; font-size: 13px; color: var(--text-faint); }
+  .nav-badge { margin-left: auto; font-size: 10px; padding: 1px 6px; border-radius: 10px; background: var(--surface-3); color: var(--text-dim); font-weight: 600; }
+  .nav-badge.red { background: rgba(248,81,73,0.2); color: var(--red); }
+  .nav-badge.amber { background: rgba(210,153,34,0.2); color: var(--amber); }
+
+  /* CONTENT */
+  .content { overflow-y: auto; background: var(--bg); }
+  .content-header { padding: 20px 28px 16px; border-bottom: 1px solid var(--border); background: var(--surface); display: flex; align-items: flex-start; gap: 16px; }
+  .content-title { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+  .content-subtitle { color: var(--text-dim); font-size: 12px; margin-top: 4px; }
+  .content-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  .btn { padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font-size: 12px; cursor: pointer; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; transition: all 0.1s; }
+  .btn:hover { background: var(--surface-3); border-color: var(--border-strong); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: white; font-weight: 600; }
+  .btn.primary:hover { background: #5aa8ff; }
+  .btn.danger { background: var(--red-bg); border-color: rgba(248,81,73,0.3); color: var(--red); }
+  .btn.ghost { background: transparent; border-color: var(--border); }
+
+  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; font-family: var(--mono); letter-spacing: 0.02em; }
+  .badge.green { background: var(--green-bg); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+  .badge.red { background: var(--red-bg); color: var(--red); border: 1px solid rgba(248,81,73,0.3); }
+  .badge.amber { background: var(--amber-bg); color: var(--amber); border: 1px solid rgba(210,153,34,0.3); }
+  .badge.blue { background: rgba(74,158,255,0.1); color: var(--accent); border: 1px solid rgba(74,158,255,0.3); }
+  .badge.gray { background: var(--surface-3); color: var(--text-dim); border: 1px solid var(--border); }
+  .badge.purple { background: rgba(163,113,247,0.1); color: var(--purple); border: 1px solid rgba(163,113,247,0.3); }
+  .badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  .content-body { padding: 24px 28px; }
+
+  /* DASHBOARD */
+  .dash-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; margin-bottom: 20px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .card-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  .card-title { font-size: 13px; font-weight: 600; }
+  .card-sub { font-size: 11px; color: var(--text-dim); margin-left: auto; }
+  .card-body { padding: 18px; }
+  .chart-fpy { height: 220px; position: relative; padding: 10px 0; }
+  .chart-line { stroke: var(--accent); stroke-width: 2; fill: none; }
+  .chart-area { fill: url(#fpyGradient); }
+  .chart-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 4; }
+  .chart-label { fill: var(--text-faint); font-size: 10px; font-family: var(--mono); }
+  .chart-target { stroke: var(--green); stroke-width: 1; stroke-dasharray: 4 4; }
+  .pareto-row { display: grid; grid-template-columns: 110px 1fr 40px; align-items: center; gap: 10px; padding: 6px 0; font-size: 12px; }
+  .pareto-label { color: var(--text-dim); }
+  .pareto-bar { height: 18px; background: var(--surface-3); border-radius: 3px; overflow: hidden; }
+  .pareto-fill { height: 100%; background: linear-gradient(90deg, var(--red), #ff7b6e); border-radius: 3px; }
+  .pareto-count { font-family: var(--mono); font-weight: 600; text-align: right; }
+  .stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .stat-label { font-size: 11px; color: var(--text-dim); margin-bottom: 6px; }
+  .stat-value { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; }
+  .stat-trend { font-size: 11px; margin-top: 4px; }
+  .stat-trend.up { color: var(--green); }
+  .stat-trend.down { color: var(--red); }
+
+  /* GOOD NEWS BAR */
+  .good-news-bar { display: flex; gap: 10px; padding: 10px 14px; background: linear-gradient(90deg, rgba(63,185,80,0.06), transparent); border: 1px solid rgba(63,185,80,0.2); border-radius: 10px; margin-bottom: 20px; align-items: center; flex-wrap: wrap; }
+  .good-news-icon { color: var(--green); font-size: 16px; }
+  .good-news-label { font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--green); border-right: 1px solid rgba(63,185,80,0.2); padding-right: 12px; }
+  .good-news-item { font-size: 12px; color: var(--text-dim); padding: 0 12px; border-right: 1px solid var(--border); }
+  .good-news-item:last-child { border-right: none; }
+  .good-news-item strong { color: var(--green); font-family: var(--mono); }
+
+  /* TABLES */
+  .toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .filter-chip { padding: 4px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; font-size: 11px; color: var(--text-dim); cursor: pointer; }
+  .filter-chip.active { background: var(--accent-dim); color: var(--text); border-color: var(--accent); }
+  table.data { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  table.data th { background: var(--surface-2); padding: 10px 14px; text-align: left; font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--border); }
+  table.data td { padding: 11px 14px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  table.data tr:last-child td { border-bottom: none; }
+  table.data tr:hover td { background: var(--surface-2); }
+  table.data tr.row-locked td { background: rgba(248,81,73,0.05); }
+  table.data tr.row-warn td { background: rgba(210,153,34,0.05); }
+  .mono { font-family: var(--mono); font-size: 11px; }
+  .row-icon { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+
+  /* DETAIL */
+  .detail-grid { display: grid; grid-template-columns: 1fr 280px; gap: 20px; }
+  .detail-main { display: flex; flex-direction: column; gap: 16px; }
+  .info-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .info-label { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; font-weight: 600; }
+  .info-value { font-size: 13px; }
+
+  /* HISTORY */
+  .history { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .history-header { padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .history-list { padding: 8px 0; max-height: 600px; overflow-y: auto; }
+  .history-item { padding: 10px 14px; border-left: 2px solid transparent; font-size: 11px; }
+  .history-item.signature { border-left-color: var(--accent); background: rgba(74,158,255,0.04); }
+  .history-action { font-weight: 600; color: var(--text); margin-bottom: 2px; }
+  .history-meta { color: var(--text-dim); font-size: 10px; }
+  .history-hash { font-family: var(--mono); font-size: 9px; color: var(--text-faint); margin-top: 2px; }
+
+  /* JOB */
+  .traveler-status { display: flex; align-items: center; gap: 0; margin-bottom: 20px; }
+  .status-step { flex: 1; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); position: relative; font-size: 11px; }
+  .status-step:not(:last-child) { border-right: none; }
+  .status-step:first-child { border-radius: 6px 0 0 6px; }
+  .status-step:last-child { border-radius: 0 6px 6px 0; }
+  .status-step.done { background: var(--green-bg); border-color: rgba(63,185,80,0.3); color: var(--green); }
+  .status-step.current { background: var(--accent-dim); border-color: var(--accent); color: var(--text); font-weight: 600; }
+  .step-label { font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.05em; }
+  .status-step.done .step-label, .status-step.current .step-label { color: inherit; opacity: 0.7; }
+  .chart-imported { background: var(--green-bg); border: 1px solid rgba(63,185,80,0.3); border-radius: 8px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
+
+  /* SIGNATURE */
+  .sig-pending { background: var(--amber-bg); border: 1px dashed rgba(210,153,34,0.4); border-radius: 10px; padding: 16px; text-align: center; }
+  .inspection-tolerance { background: var(--surface-2); padding: 10px 14px; border-radius: 6px; display: flex; align-items: center; gap: 16px; margin-bottom: 12px; font-size: 12px; }
+  .tolerance-range { font-family: var(--mono); font-weight: 600; }
+
+  /* DOCS */
+  .doc-layout { display: grid; grid-template-columns: 320px 1fr; gap: 16px; height: 600px; }
+  .doc-list { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow-y: auto; }
+  .doc-item { padding: 12px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .doc-item:hover { background: var(--surface-2); }
+  .doc-item.active { background: var(--accent-dim); border-left: 3px solid var(--accent); }
+  .doc-item-title { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+  .doc-item-meta { font-size: 10px; color: var(--text-dim); display: flex; gap: 8px; align-items: center; }
+  .doc-viewer { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; display: flex; flex-direction: column; }
+  .doc-viewer-toolbar { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .doc-page { flex: 1; background: #1a1a1a; padding: 40px; display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; }
+  .doc-page-paper { background: #f5f5f0; color: #1a1a1a; width: 100%; max-width: 580px; padding: 40px 50px; min-height: 700px; font-family: Georgia, serif; font-size: 11px; line-height: 1.7; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+  .doc-page-paper h1 { font-size: 18px; margin-bottom: 4px; }
+  .doc-page-paper h2 { font-size: 13px; margin: 16px 0 6px; }
+  .doc-page-paper .doc-meta { font-size: 9px; color: #666; border-bottom: 1px solid #ccc; padding-bottom: 10px; margin-bottom: 16px; }
+  .compat-banner { background: var(--amber-bg); border: 1px solid rgba(210,153,34,0.4); border-radius: 8px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+
+  /* ASSETS */
+  .asset-tree { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 8px; }
+  .asset-node { padding: 8px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 12px; }
+  .asset-node:hover { background: var(--surface-2); }
+  .asset-node.selected { background: var(--accent-dim); }
+  .asset-children { padding-left: 24px; border-left: 1px solid var(--border); margin-left: 14px; }
+  .asset-status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .asset-status-dot.active { background: var(--green); }
+  .asset-status-dot.oos { background: var(--red); box-shadow: 0 0 0 3px rgba(248,81,73,0.15); }
+
+  /* LOCK BANNERS */
+  .oos-banner { background: var(--red-bg); border: 1px solid var(--red); border-radius: 8px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  .oos-lock { width: 36px; height: 36px; border-radius: 8px; background: rgba(248,81,73,0.2); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .held-banner { background: var(--red-bg); border: 2px solid var(--red); border-radius: 10px; padding: 16px 18px; display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+  .held-lock { width: 44px; height: 44px; background: var(--red); border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+
+  /* LOCK TRIGGER (clickable lock affordance) */
+  .lock-trigger { cursor: pointer; position: relative; transition: all 0.1s; }
+  .lock-trigger::after { content: 'Why?'; position: absolute; top: 4px; right: 6px; font-size: 9px; padding: 2px 6px; background: rgba(0,0,0,0.55); border-radius: 8px; color: rgba(255,255,255,0.85); font-weight: 600; letter-spacing: 0.04em; opacity: 0; transition: opacity 0.1s; pointer-events: none; }
+  .lock-trigger:hover::after { opacity: 1; }
+  .lock-trigger:hover { box-shadow: 0 0 0 2px var(--accent); }
+
+  /* MODULE NOTE */
+  .module-note-row { background: linear-gradient(90deg, rgba(163,113,247,0.05), transparent); border-left: 2px solid var(--purple); padding: 10px 14px; margin-bottom: 16px; font-size: 11px; color: var(--text-dim); border-radius: 0 6px 6px 0; }
+
+  /* PM */
+  .pm-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .pm-card { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  .pm-card.overdue { border-color: rgba(248,81,73,0.4); background: rgba(248,81,73,0.05); }
+  .pm-card.due { border-color: rgba(210,153,34,0.4); background: rgba(210,153,34,0.05); }
+  .pm-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .pm-title { font-size: 12px; font-weight: 600; line-height: 1.3; }
+  .pm-schedule { display: inline-block; font-size: 10px; color: var(--text-dim); background: var(--surface-3); padding: 2px 7px; border-radius: 10px; margin-bottom: 8px; font-family: var(--mono); }
+  .pm-meta { display: flex; flex-direction: column; gap: 3px; font-size: 11px; padding-top: 8px; border-top: 1px solid var(--border); }
+  .pm-meta > div { display: flex; justify-content: space-between; }
+  .pm-meta > div > span:first-child { color: var(--text-faint); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .overdue-text { color: var(--red); font-weight: 600; }
+  .due-text { color: var(--amber); font-weight: 600; }
+
+  /* NCR */
+  .whys-list { display: flex; flex-direction: column; gap: 12px; }
+  .why-row { display: grid; grid-template-columns: 60px 1fr; gap: 12px; align-items: flex-start; }
+  .why-num { background: var(--surface-3); border-radius: 6px; padding: 8px; text-align: center; font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+  .why-num.root { background: var(--accent-dim); color: var(--text); }
+  .why-input { background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; font-family: inherit; font-size: 12px; color: var(--text); width: 100%; resize: vertical; min-height: 38px; line-height: 1.5; }
+  .why-input.filled { border-color: var(--accent-dim); }
+  .why-input:focus { outline: none; border-color: var(--accent); }
+  .disposition-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .disp-option { padding: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; text-align: center; cursor: pointer; font-size: 12px; }
+  .disp-option.selected { background: var(--accent-dim); border-color: var(--accent); }
+  .disp-option.requires-extra { position: relative; }
+  .disp-option.requires-extra::after { content: '+'; position: absolute; top: 4px; right: 6px; font-size: 9px; padding: 1px 5px; background: var(--purple); border-radius: 8px; color: white; font-weight: 700; }
+
+  /* CONCESSION PANEL */
+  .concession-panel { margin-top: 16px; background: linear-gradient(135deg, rgba(163,113,247,0.06), rgba(74,158,255,0.06)); border: 1px solid rgba(163,113,247,0.3); border-radius: 10px; overflow: hidden; }
+  .concession-head { padding: 12px 16px; border-bottom: 1px solid rgba(163,113,247,0.2); display: flex; align-items: center; gap: 10px; background: rgba(163,113,247,0.08); }
+  .concession-icon { width: 28px; height: 28px; border-radius: 7px; background: rgba(163,113,247,0.2); color: var(--purple); display: flex; align-items: center; justify-content: center; font-size: 13px; }
+  .concession-title { font-size: 12px; font-weight: 700; }
+  .concession-sub { font-size: 10px; color: var(--text-dim); margin-top: 1px; }
+  .concession-body { padding: 14px 16px; }
+  .concession-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .concession-field label { display: block; font-size: 10px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 5px; font-weight: 600; }
+  .concession-field input, .concession-field textarea { width: 100%; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; font-family: inherit; font-size: 12px; color: var(--text); }
+  .concession-field input:focus, .concession-field textarea:focus { outline: none; border-color: var(--purple); }
+  .concession-upload { padding: 10px 12px; background: var(--surface-2); border: 1px dashed var(--border-strong); border-radius: 6px; font-size: 11px; color: var(--text-dim); display: flex; align-items: center; gap: 8px; cursor: pointer; }
+  .concession-upload:hover { border-color: var(--purple); color: var(--text); }
+
+  /* AUDIT */
+  .audit-tabs { display: flex; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 4px; margin-bottom: 16px; width: fit-content; }
+  .audit-tab { padding: 7px 14px; border-radius: 5px; font-size: 12px; cursor: pointer; color: var(--text-dim); display: flex; align-items: center; gap: 8px; }
+  .audit-tab.active { background: var(--accent-dim); color: var(--text); font-weight: 600; }
+  .audit-tab.locked { color: var(--text-faint); opacity: 0.65; }
+  .audit-tab .ver { font-size: 10px; color: var(--text-faint); font-family: var(--mono); }
+  .clause-section-header { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px 8px 0 0; border-bottom: none; margin-top: 16px; }
+  .clause-section-num { font-family: var(--mono); font-size: 11px; color: var(--text-faint); background: var(--surface-3); padding: 2px 8px; border-radius: 4px; }
+  .clause-section-title { font-size: 13px; font-weight: 700; }
+  .clause-section-progress { margin-left: auto; font-size: 11px; color: var(--text-dim); }
+  .clause-section-body { background: var(--surface); border: 1px solid var(--border); border-radius: 0 0 8px 8px; padding: 12px; }
+  .clause-row { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; margin-bottom: 8px; }
+  .clause-header { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .clause-num { font-family: var(--mono); font-size: 11px; color: var(--text-dim); }
+  .clause-title { font-size: 13px; font-weight: 600; flex: 1; }
+  .rating-group { display: flex; gap: 4px; }
+  .rating-chip { padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-dim); cursor: pointer; }
+  .rating-chip.selected.conf { background: var(--green-bg); border-color: var(--green); color: var(--green); }
+  .rating-chip.selected.minor { background: var(--amber-bg); border-color: var(--amber); color: var(--amber); }
+  .rating-chip.selected.major { background: var(--red-bg); border-color: var(--red); color: var(--red); }
+  .rating-chip.selected.obs { background: rgba(74,158,255,0.1); border-color: var(--accent); color: var(--accent); }
+  .evidence-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .evidence-pill { padding: 3px 8px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; font-size: 10px; font-family: var(--mono); color: var(--accent); cursor: pointer; }
+
+  /* RISK MATRIX */
+  .risk-layout { display: grid; grid-template-columns: 440px 1fr; gap: 16px; margin-bottom: 16px; }
+  .risk-matrix { display: grid; grid-template-columns: 30px repeat(5, 1fr); grid-template-rows: 30px repeat(5, 1fr); gap: 4px; aspect-ratio: 1.1; }
+  .rm-label { font-size: 10px; color: var(--text-faint); display: flex; align-items: center; justify-content: center; font-weight: 600; }
+  .rm-cell { border-radius: 6px; padding: 6px; font-size: 9px; color: rgba(255,255,255,0.8); position: relative; min-height: 50px; }
+  .rm-cell.l1 { background: rgba(63,185,80,0.25); }
+  .rm-cell.l2 { background: rgba(63,185,80,0.4); }
+  .rm-cell.l3 { background: rgba(210,153,34,0.45); }
+  .rm-cell.l4 { background: rgba(248,81,73,0.4); }
+  .rm-cell.l5 { background: rgba(248,81,73,0.6); }
+  .rm-bubble { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: rgba(15,20,25,0.85); border: 1px solid rgba(255,255,255,0.3); font-family: var(--mono); font-size: 10px; font-weight: 700; margin: 1px; cursor: pointer; }
+
+  /* COMPETENCY */
+  .comp-matrix { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: auto; }
+  .comp-table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 800px; }
+  .comp-table th, .comp-table td { padding: 0; text-align: center; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .comp-table th { background: var(--surface-2); font-size: 10px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; padding: 10px 6px; vertical-align: bottom; height: 90px; }
+  .comp-table th.sticky-l, .comp-table td.sticky-l { position: sticky; left: 0; background: var(--surface); z-index: 1; text-align: left; padding: 10px 14px; min-width: 180px; border-right: 2px solid var(--border-strong); }
+  .comp-table th.sticky-l { background: var(--surface-2); z-index: 2; }
+  .comp-table .vert { writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; padding: 8px 4px; }
+  .comp-cell { width: 56px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 14px; cursor: pointer; }
+  .comp-cell.qual { background: rgba(63,185,80,0.12); color: var(--green); }
+  .comp-cell.expiring { background: rgba(210,153,34,0.12); color: var(--amber); }
+  .comp-cell.expired { background: rgba(248,81,73,0.12); color: var(--red); }
+  .comp-cell.training { background: rgba(74,158,255,0.1); color: var(--accent); }
+  .comp-cell.na { color: var(--text-faint); }
+  .comp-op { font-size: 12px; font-weight: 600; }
+  .comp-op-role { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+  .comp-legend { display: flex; gap: 16px; font-size: 11px; color: var(--text-dim); margin-top: 14px; flex-wrap: wrap; }
+  .comp-legend-item { display: flex; align-items: center; gap: 6px; }
+  .comp-legend-dot { width: 14px; height: 14px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-size: 10px; }
+
+  /* MGMT REVIEW */
+  .mr-section { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 14px; }
+  .mr-section-head { padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+  .mr-clause-tag { font-family: var(--mono); font-size: 10px; color: var(--text-faint); background: var(--surface-3); padding: 2px 7px; border-radius: 4px; }
+  .mr-section-title { font-size: 13px; font-weight: 700; }
+  .mr-input-row { display: grid; grid-template-columns: 24px 1fr auto; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--border); font-size: 12px; align-items: center; }
+  .mr-input-row:last-child { border-bottom: none; }
+  .mr-input-check { width: 18px; height: 18px; border-radius: 4px; background: var(--green-bg); border: 1px solid var(--green); color: var(--green); display: flex; align-items: center; justify-content: center; font-size: 11px; }
+  .mr-input-meta { color: var(--text-dim); font-size: 11px; }
+  .attendee-chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; font-size: 11px; margin-right: 6px; margin-bottom: 6px; }
+  .attendee-dot { width: 18px; height: 18px; border-radius: 50%; background: linear-gradient(135deg, #4a9eff, #a371f7); display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700; color: white; }
+
+  /* SIGNATURE BLOCK */
+  .sig-block { background: linear-gradient(135deg, rgba(74,158,255,0.06), rgba(163,113,247,0.06)); border: 1px solid var(--accent-dim); border-radius: 10px; padding: 16px; }
+  .sig-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .sig-icon { width: 32px; height: 32px; border-radius: 8px; background: var(--accent-dim); display: flex; align-items: center; justify-content: center; }
+  .sig-title { font-size: 12px; font-weight: 700; }
+  .sig-sub { font-size: 11px; color: var(--text-dim); }
+  .sig-details { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; font-size: 11px; }
+  .sig-detail-label { color: var(--text-faint); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .sig-detail-value { font-family: var(--mono); font-size: 11px; margin-top: 2px; }
+
+  /* DRAWER */
+  .drawer-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.2s; }
+  .drawer-backdrop.open { opacity: 1; pointer-events: all; }
+  .drawer { position: fixed; top: 0; right: 0; bottom: 0; width: 420px; background: var(--surface); border-left: 1px solid var(--border); z-index: 101; transform: translateX(100%); transition: transform 0.25s ease-out; display: flex; flex-direction: column; box-shadow: -10px 0 40px rgba(0,0,0,0.3); }
+  .drawer.open { transform: translateX(0); }
+  .drawer-header { padding: 18px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  .drawer-title { font-size: 16px; font-weight: 700; }
+  .drawer-sub { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .drawer-close { margin-left: auto; cursor: pointer; color: var(--text-dim); padding: 8px; font-size: 18px; line-height: 1; border-radius: 6px; }
+  .drawer-close:hover { background: var(--surface-2); color: var(--text); }
+  .drawer-tabs { display: flex; gap: 2px; padding: 0 16px; border-bottom: 1px solid var(--border); }
+  .drawer-tab { padding: 10px 12px; font-size: 12px; color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .drawer-tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+  .drawer-tab:hover { color: var(--text); }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 14px 16px 24px; }
+  .drawer-group { margin-bottom: 16px; }
+  .drawer-group-header { display: flex; align-items: center; gap: 8px; font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-faint); padding: 8px 4px 6px; }
+  .drawer-group-count { margin-left: auto; padding: 1px 7px; background: var(--surface-3); border-radius: 10px; font-size: 10px; color: var(--text-dim); }
+  .drawer-tile { background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 6px; cursor: pointer; display: flex; align-items: center; gap: 11px; transition: all 0.1s; }
+  .drawer-tile:hover { background: var(--surface-3); transform: translateX(-2px); }
+  .drawer-tile.red { background: rgba(248,81,73,0.06); border-color: rgba(248,81,73,0.3); }
+  .drawer-tile.amber { background: rgba(210,153,34,0.06); border-color: rgba(210,153,34,0.3); }
+  .drawer-tile.green-news { background: rgba(63,185,80,0.05); border-color: rgba(63,185,80,0.2); }
+  .drawer-tile-icon { width: 32px; height: 32px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+  .drawer-tile.red .drawer-tile-icon { background: rgba(248,81,73,0.15); color: var(--red); }
+  .drawer-tile.amber .drawer-tile-icon { background: rgba(210,153,34,0.15); color: var(--amber); }
+  .drawer-tile.green-news .drawer-tile-icon { background: rgba(63,185,80,0.15); color: var(--green); }
+  .drawer-tile-content { flex: 1; min-width: 0; }
+  .drawer-tile-title { font-size: 12px; font-weight: 600; line-height: 1.3; }
+  .drawer-tile-sub { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .drawer-tile-count { font-size: 20px; font-weight: 700; font-family: var(--mono); line-height: 1; }
+  .drawer-tile.red .drawer-tile-count { color: var(--red); }
+  .drawer-tile.amber .drawer-tile-count { color: var(--amber); }
+  .drawer-tile.green-news .drawer-tile-count { color: var(--green); font-size: 14px; }
+  .drawer-tile-arrow { color: var(--text-faint); font-size: 12px; }
+  .drawer-empty { padding: 40px 20px; text-align: center; color: var(--text-dim); font-size: 12px; }
+  .drawer-empty-icon { font-size: 32px; color: var(--green); margin-bottom: 10px; }
+
+  /* INSPECTOR */
+  .inspector-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); backdrop-filter: blur(2px); z-index: 200; opacity: 0; pointer-events: none; transition: opacity 0.15s; display: flex; align-items: center; justify-content: center; padding: 40px; }
+  .inspector-backdrop.open { opacity: 1; pointer-events: all; }
+  .inspector-card { background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px; width: 100%; max-width: 560px; max-height: 80vh; overflow: hidden; display: flex; flex-direction: column; transform: scale(0.96) translateY(8px); transition: transform 0.18s ease-out; box-shadow: 0 30px 60px rgba(0,0,0,0.6); }
+  .inspector-backdrop.open .inspector-card { transform: scale(1) translateY(0); }
+  .inspector-head { padding: 18px 22px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 14px; background: linear-gradient(135deg, rgba(248,81,73,0.1), transparent); }
+  .inspector-head-icon { width: 42px; height: 42px; border-radius: 10px; background: rgba(248,81,73,0.18); display: flex; align-items: center; justify-content: center; color: var(--red); font-size: 18px; flex-shrink: 0; }
+  .inspector-title { font-size: 15px; font-weight: 700; margin-bottom: 3px; }
+  .inspector-sub { font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+  .inspector-close { margin-left: auto; cursor: pointer; color: var(--text-dim); padding: 6px 10px; font-size: 16px; border-radius: 6px; align-self: flex-start; }
+  .inspector-close:hover { background: var(--surface-2); color: var(--text); }
+  .chain-body { padding: 18px 22px 22px; overflow-y: auto; }
+  .chain-intro { font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; margin-bottom: 12px; }
+  .chain-link { padding: 12px 14px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); cursor: pointer; transition: all 0.1s; }
+  .chain-link:hover { border-color: var(--accent); background: var(--surface-3); }
+  .chain-link-head { display: flex; align-items: center; gap: 10px; }
+  .chain-link-tag { font-family: var(--mono); font-size: 9px; color: var(--text-faint); background: var(--surface-3); padding: 2px 7px; border-radius: 3px; letter-spacing: 0.04em; text-transform: uppercase; font-weight: 700; }
+  .chain-link-id { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--text); }
+  .chain-link-arrow { margin-left: auto; color: var(--text-faint); font-size: 14px; }
+  .chain-link-detail { font-size: 12px; color: var(--text-dim); margin-top: 6px; line-height: 1.5; }
+  .chain-link.terminal { background: linear-gradient(135deg, rgba(74,158,255,0.06), transparent); border-color: var(--accent-dim); }
+  .chain-link.terminal .chain-link-id { color: var(--accent); }
+  .chain-connector { display: flex; flex-direction: column; align-items: center; padding: 4px 0; margin-left: 22px; }
+  .chain-connector-line { width: 1px; height: 14px; background: var(--border-strong); }
+  .chain-connector-text { font-size: 10px; color: var(--text-faint); font-style: italic; padding: 2px 8px; background: var(--surface); margin: 2px 0; }
+  .inspector-actions { padding: 14px 22px; border-top: 1px solid var(--border); display: flex; gap: 8px; background: var(--surface-2); }
+
+  /* GENERIC MODAL */
+  .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); backdrop-filter: blur(2px); z-index: 150; opacity: 0; pointer-events: none; transition: opacity 0.15s; display: flex; align-items: center; justify-content: center; padding: 30px; }
+  .modal-backdrop.open { opacity: 1; pointer-events: all; }
+  .modal-card { background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px; width: 100%; max-width: 720px; max-height: 85vh; display: flex; flex-direction: column; transform: scale(0.96); transition: transform 0.18s; box-shadow: 0 30px 60px rgba(0,0,0,0.6); overflow: hidden; }
+  .modal-backdrop.open .modal-card { transform: scale(1); }
+  .modal-head { padding: 18px 22px; border-bottom: 1px solid var(--border); display: flex; align-items: flex-start; gap: 14px; }
+  .modal-head-icon { width: 42px; height: 42px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 18px; }
+  .modal-head-icon.purple { background: rgba(163,113,247,0.18); color: var(--purple); }
+  .modal-head-icon.blue { background: rgba(74,158,255,0.18); color: var(--accent); }
+  .modal-title { font-size: 16px; font-weight: 700; margin-bottom: 3px; }
+  .modal-sub { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+  .modal-close { margin-left: auto; cursor: pointer; color: var(--text-dim); padding: 6px 10px; border-radius: 6px; align-self: flex-start; font-size: 16px; }
+  .modal-close:hover { background: var(--surface-2); color: var(--text); }
+  .modal-body { flex: 1; overflow-y: auto; padding: 18px 22px; }
+  .modal-actions { padding: 14px 22px; border-top: 1px solid var(--border); display: flex; gap: 8px; background: var(--surface-2); }
+
+  /* MODULES MODAL */
+  .module-row { padding: 14px 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); display: flex; align-items: flex-start; gap: 14px; margin-bottom: 10px; }
+  .module-row.active { background: rgba(63,185,80,0.04); border-color: rgba(63,185,80,0.3); }
+  .module-row.active.base { background: linear-gradient(135deg, rgba(63,185,80,0.06), rgba(74,158,255,0.04)); }
+  .module-row-icon { width: 36px; height: 36px; border-radius: 8px; background: var(--surface-3); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 16px; color: var(--text-dim); }
+  .module-row.active .module-row-icon { background: rgba(63,185,80,0.15); color: var(--green); }
+  .module-row.base .module-row-icon { background: rgba(74,158,255,0.15); color: var(--accent); }
+  .module-row-content { flex: 1; min-width: 0; }
+  .module-row-title { font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .module-row-ver { font-family: var(--mono); font-size: 10px; color: var(--text-faint); font-weight: 500; }
+  .module-row-desc { font-size: 11px; color: var(--text-dim); margin-top: 5px; line-height: 1.5; }
+  .module-row-adds { font-size: 11px; color: var(--text-faint); margin-top: 6px; font-style: italic; }
+  .module-row-action { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; flex-shrink: 0; }
+
+  /* EXPORT MODAL */
+  .export-package { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+  .export-package-title { font-size: 12px; font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; gap: 8px; }
+  .export-package-sub { font-size: 11px; color: var(--text-dim); }
+  .export-section { margin-bottom: 14px; }
+  .export-section-title { font-size: 11px; font-weight: 700; color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
+  .export-include { padding: 9px 14px; background: rgba(63,185,80,0.05); border-left: 2px solid var(--green); border-radius: 0 6px 6px 0; margin-bottom: 5px; font-size: 12px; display: flex; align-items: center; gap: 10px; }
+  .export-include-check { color: var(--green); font-weight: 700; }
+  .export-include-name { font-weight: 600; }
+  .export-include-meta { color: var(--text-dim); font-size: 11px; margin-left: auto; font-family: var(--mono); }
+  .export-exclude { padding: 9px 14px; background: rgba(248,81,73,0.04); border-left: 2px solid var(--red); border-radius: 0 6px 6px 0; margin-bottom: 5px; font-size: 12px; color: var(--text-dim); display: flex; align-items: center; gap: 10px; }
+  .export-exclude-x { color: var(--red); font-weight: 700; }
+  .export-tree { background: #1a1a1a; border: 1px solid var(--border); border-radius: 6px; padding: 14px 16px; font-family: var(--mono); font-size: 11px; line-height: 1.9; color: var(--text-dim); }
+  .export-tree-folder { color: var(--accent); font-weight: 600; }
+  .export-tree-file { color: var(--text-dim); }
+  .export-tree-indent { display: inline-block; width: 16px; }
+
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; border: 2px solid var(--bg); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+  .divider { height: 1px; background: var(--border); margin: 16px 0; }
+</style>
+
+<script>
+  const ICONS = {
+    dash: '⊞', doc: '⎙', asset: '⚙', job: '⊡', ncr: '⚠', audit: '◉', data: '⊿',
+    risk: '◬', review: '◐', people: '☷', trace: '⟿', supplier: '⌑',
+    search: '⌕', plus: '+', filter: '⛛', download: '↓', signature: '✎', lock: '⊘',
+    check: '✓', chevron: '›', clock: '◷', flag: '⚑', link: '⚯', bell: '◔', module: '◧',
+    package: '⌹', star: '★'
+  };
+
+  let currentView = 'dashboard';
+  let pulseDrawerOpen = false;
+  let pulseDrawerTab = 'all';
+  let lockInspectorId = null;
+  let modalId = null;
+  let ncrDisposition = 'rework';
+
+  const CURRENT_USER = 'M. Rodriguez';
+
+  // PULSE TILES (data, then filtered by tab)
+  const PULSE_TILES = [
+    { sev: 'red', cat: 'cal', title: 'Calibrations overdue', sub: 'Load TC #1 · 3 days · 2 more', count: '3', nav: 'assets', owner: 'J. Hayes' },
+    { sev: 'red', cat: 'ncr', title: 'Open NCRs', sub: 'NCR-2026-0033 · J-2026-0847 held', count: '2', nav: 'ncr', owner: 'M. Rodriguez' },
+    { sev: 'red', cat: 'people', title: 'Operator production locked', sub: 'D. Park · SOP-HT-001 expired', count: '1', nav: 'competency', owner: 'M. Rodriguez' },
+    { sev: 'amber', cat: 'cal', title: 'PM / Cal due in 7 days', sub: '8 tasks across 4 assets', count: '8', nav: 'assets', owner: 'J. Hayes' },
+    { sev: 'amber', cat: 'qa', title: 'QA gates awaiting signature', sub: 'Chart · Inspection · CoC issuance', count: '12', nav: 'job', owner: 'M. Rodriguez' },
+    { sev: 'amber', cat: 'capa', title: 'CAPAs pending verification', sub: '2 entering 30-day window', count: '4', owner: 'K. Patel' },
+    { sev: 'amber', cat: 'people', title: 'Operator quals expiring', sub: 'J. Hayes · L. Martinez · <30d', count: '2', nav: 'competency', owner: 'M. Rodriguez' },
+    { sev: 'amber', cat: 'risk', title: 'Risk review overdue', sub: 'R-05 · Key person dependency', count: '1', nav: 'risk', owner: 'M. Rodriguez' },
+    { sev: 'amber', cat: 'doc', title: 'Doc compatibility review', sub: 'SOP-HT-014 · ASTM E18 updated', count: '1', nav: 'documents', owner: 'M. Rodriguez' },
+    { sev: 'amber', cat: 'supplier', title: 'Supplier audit overdue', sub: 'Coastal Metals Ltd. · 14 months', count: '1', nav: 'suppliers', owner: 'M. Rodriguez' },
+    { sev: 'green', cat: 'ncr', title: '47 days since last Major NCR', sub: 'Last major: NCR-2026-0019 · Jan 22', count: '47d' },
+    { sev: 'green', cat: 'review', title: 'Management Review on cadence', sub: 'Q1 2026 signed Apr 15 · Q2 due Jul 15', count: '✓' },
+    { sev: 'green', cat: 'trace', title: 'All material lots traceable', sub: '0 jobs with missing lot reference', count: '100%' },
+    { sev: 'green', cat: 'audit', title: 'Snapshot integrity clean', sub: '90 daily · 12 weekly · 4 monthly verified', count: '✓' },
+    { sev: 'green', cat: 'customer', title: 'No customer complaints YTD', sub: 'Q1 OTD 96.4% · 1 commendation', count: '0' }
+  ];
+
+  const LOCK_CHAINS = {
+    'job-held': {
+      title: 'Why is Job J-2026-0847 locked?',
+      sub: 'Final Release is blocked. The chain below shows every record contributing to the lock, ending at the original configuration source.',
+      chain: [
+        { tag: 'Job', id: 'J-2026-0847', detail: 'Final Release blocked · Status: Held', because: 'because a non-conformance is open against it' },
+        { tag: 'NCR', id: 'NCR-2026-0033', detail: 'Open · Investigation in progress · Severity Major', because: 'because a hardness reading fell outside tolerance', nav: 'ncr' },
+        { tag: 'Inspection Reading #4', id: 'Shoulder · 36.4 HRC', detail: 'Recorded by R. Chen at 2026-03-08 08:47 CST', because: 'because the value is below the configured minimum' },
+        { tag: 'Part Master', id: 'AD-1184-C Rev 3', detail: 'Tolerance 38.0 – 42.0 HRC · Effective from 2026-01-12 (configuration in effect at the time of the reading)', because: null, terminal: true }
+      ]
+    },
+    'park-locked': {
+      title: 'Why is D. Park locked out of production?',
+      sub: 'This operator cannot be selected on Job Travelers that reference SOP-HT-001. The chain below explains why and points to the resolution.',
+      chain: [
+        { tag: 'Operator', id: 'D. Park', detail: 'Cannot be selected as Operator on jobs requiring SOP-HT-001', because: 'because the qualification on that SOP is expired' },
+        { tag: 'Operator Qualification', id: 'D. Park × SOP-HT-001 Rev C', detail: 'Status: Expired (was qualified on Rev C until Jan 8, 2026)', because: 'because a new revision was approved that requires re-acknowledgment' },
+        { tag: 'Document Revision', id: 'SOP-HT-001 Rev D', detail: 'Approved Jan 8, 2026 · Effective Jan 15, 2026', because: 'because approving a new revision auto-flags retraining for prior-revision qualifications' },
+        { tag: 'Approval Signature', id: 'M. Rodriguez', detail: 'Signed 2026-01-08 14:22 UTC · sha256: c4a2…118f · System rule: retraining requirement is written transactionally with the approval', because: null, terminal: true }
+      ]
+    },
+    'tc-oos': {
+      title: 'Why is Load TC #1 Out of Service?',
+      sub: 'This asset is blocked from selection in jobs, inspections, and PM tasks. Returning it to service requires the steps shown below.',
+      chain: [
+        { tag: 'Asset', id: 'FRN-03-TC1 · Load TC #1', detail: 'Status: Out of Service · Selection blocked system-wide', because: 'because the most recent calibration result was a Fail' },
+        { tag: 'Calibration Record', id: 'CAL-2026-0114', detail: 'Result: Fail · Performed by J. Hayes on 2026-03-08 · sha256: 9f4c…2a18', because: 'because the Fail rule auto-creates a Maintenance Work Order' },
+        { tag: 'Maintenance Work Order', id: 'MWO-2026-0019', detail: 'Status: Open · Blocking return-to-service until a Pass calibration is recorded (or QM override with justification)', because: null, terminal: true }
+      ]
+    }
+  };
+
+  const MODULES = [
+    { id: 'iso9001', name: 'ISO 9001:2015', ver: 'Base Standard', state: 'base', icon: ICONS.star,
+      desc: 'The base QMS module. Provides all core modules: Documents, Risk Register, Management Review, Competency Matrix, Internal Audits, Assets & PM, Production Control, Material Traceability, Suppliers, NCR/CAPA.', adds: 'Required · Cannot be disabled' },
+    { id: 'as9100', name: 'AS9100', ver: 'Rev D', state: 'available', icon: '✈',
+      desc: 'Aerospace QMS overlay. Adds clauses on configuration management, counterfeit parts prevention, risk-based product safety, and first article inspection.', adds: 'Adds: FOD inspection records · FAI (AS9102) forms · Counterfeit parts attestation · Configuration management for mid-job revisions' },
+    { id: 'ams2750', name: 'AMS 2750', ver: 'Rev G', state: 'available', icon: '⚒',
+      desc: 'Aerospace pyrometry standard for heat treating. Adds instrument typing, furnace classification, and the schedules for thermal surveys.', adds: 'Adds: TUS · SAT · Instrument Type A–E · Furnace Class 1–6 · Hi-Limit functional test scheduling · Correction factor application' },
+    { id: 'cqi9', name: 'CQI-9', ver: 'v4', state: 'available', icon: '◬',
+      desc: 'AIAG Heat Treat System Assessment for automotive heat treating. Adds Process Table tracking, job audits, and system audits.', adds: 'Adds: Process Table A–H · Job audits · System audits · Pyrometry compliance (overlaps with AMS 2750)' },
+    { id: 'iatf', name: 'IATF 16949', ver: '2016', state: 'available', icon: '⛯',
+      desc: 'Automotive QMS overlay. Adds PPAP packages, control plans, advanced product quality planning, and customer-specific requirements.', adds: 'Adds: PPAP · Control Plans · APQP gates · Customer-specific requirement tracking' }
+  ];
+
+  function render() {
+    document.getElementById('app').innerHTML = `
+      <div class="app-shell">
+        ${renderTopbar()}
+        <div class="main">
+          ${renderNav()}
+          <div class="content">${renderContent()}</div>
+        </div>
+        ${renderDrawer()}
+        ${renderInspector()}
+        ${renderModal()}
+      </div>
+    `;
+    attachHandlers();
+  }
+
+  function renderTopbar() {
+    const crumbs = {
+      dashboard: ['Home', 'Pulse Dashboard'],
+      documents: ['Home', 'Governance', 'Documents'],
+      audit: ['Home', 'Governance', 'Internal Audits', 'ISO 9001 — Q2 2026'],
+      risk: ['Home', 'Governance', 'Risk Register'],
+      review: ['Home', 'Governance', 'Management Review', 'Q1 2026'],
+      competency: ['Home', 'Governance', 'Competency Matrix'],
+      assets: ['Home', 'Operations', 'Assets & PM', 'Furnace #3'],
+      job: ['Home', 'Operations', 'Production Jobs', 'J-2026-0847'],
+      traceability: ['Home', 'Operations', 'Material Traceability'],
+      suppliers: ['Home', 'Operations', 'Suppliers'],
+      ncr: ['Home', 'Quality', 'NCRs', 'NCR-2026-0033']
+    }[currentView] || ['Home', currentView];
+
+    return `
+      <div class="topbar">
+        <div class="brand">
+          <div class="brand-mark">EQ</div>
+          <span>EasySynQ</span>
+          <span class="brand-suffix">/ Anniston Heat Treat</span>
+        </div>
+        <div class="module-chip" data-modal="modules" title="Manage compliance modules">
+          <span class="dot"></span>
+          <span>ISO 9001:2015</span>
+          <span style="color:var(--text-faint)">·</span>
+          <span style="color:var(--text-faint)">+4 available</span>
+        </div>
+        <div class="breadcrumb">
+          ${crumbs.map((c, i) => i === 0 ? `<span>${c}</span>` : `<span class="sep">${ICONS.chevron}</span><span>${c}</span>`).join('')}
+        </div>
+        <div class="topbar-right">
+          <div class="pulse-btn" data-toggle-pulse>
+            <span class="pulse-btn-label">Pulse</span>
+            <span class="pulse-btn-count red"><span class="pulse-btn-dot"></span>3</span>
+            <span class="pulse-btn-count amber"><span class="pulse-btn-dot"></span>10</span>
+            <span class="pulse-btn-chevron">⌄</span>
+          </div>
+          <div class="search">
+            <span>${ICONS.search}</span>
+            <span>Search…</span>
+            <span class="search-kbd">⌘K</span>
+          </div>
+          <div class="user-chip">
+            <div class="user-avatar">MR</div>
+            <div>
+              <div class="user-name">M. Rodriguez</div>
+              <div class="user-role">Quality Manager</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderNav() {
+    const nav = [
+      { id: 'dashboard', label: 'Pulse Dashboard', icon: ICONS.dash },
+      { sec: 'Governance' },
+      { id: 'documents', label: 'Documents', icon: ICONS.doc, badge: { text: '1', cls: 'amber' } },
+      { id: 'risk', label: 'Risk Register', icon: ICONS.risk },
+      { id: 'review', label: 'Management Review', icon: ICONS.review },
+      { id: 'competency', label: 'Competency Matrix', icon: ICONS.people, badge: { text: '2', cls: 'amber' } },
+      { id: 'audit', label: 'Internal Audits', icon: ICONS.audit },
+      { sec: 'Operations' },
+      { id: 'assets', label: 'Assets & PM', icon: ICONS.asset, badge: { text: '3', cls: 'red' } },
+      { id: 'job', label: 'Production Jobs', icon: ICONS.job, badge: { text: '12', cls: '' } },
+      { id: 'traceability', label: 'Material Traceability', icon: ICONS.trace },
+      { id: 'suppliers', label: 'Suppliers', icon: ICONS.supplier },
+      { sec: 'Quality' },
+      { id: 'ncr', label: 'NCRs', icon: ICONS.ncr, badge: { text: '2', cls: 'red' } },
+      { id: 'capa', label: 'CAPAs', icon: ICONS.flag, badge: { text: '4', cls: 'amber' } },
+      { sec: 'Insights' },
+      { id: 'data', label: 'Analytics', icon: ICONS.data }
+    ];
+    let html = '<div class="nav"><div class="nav-section">';
+    nav.forEach(item => {
+      if (item.sec) html += `</div><div class="nav-section"><div class="nav-label">${item.sec}</div>`;
+      else {
+        const active = item.id === currentView ? 'active' : '';
+        const badge = item.badge ? `<div class="nav-badge ${item.badge.cls}">${item.badge.text}</div>` : '';
+        html += `<div class="nav-item ${active}" data-nav="${item.id}"><span class="nav-icon">${item.icon}</span>${item.label}${badge}</div>`;
+      }
+    });
+    return html + '</div></div>';
+  }
+
+  // ====== PULSE DRAWER (with working tab filtering) ======
+  function renderDrawer() {
+    const open = pulseDrawerOpen ? 'open' : '';
+
+    let filtered;
+    if (pulseDrawerTab === 'all') filtered = PULSE_TILES.filter(t => t.sev !== 'green');
+    else if (pulseDrawerTab === 'mine') filtered = PULSE_TILES.filter(t => t.sev !== 'green' && t.owner === CURRENT_USER);
+    else if (pulseDrawerTab === 'healthy') filtered = PULSE_TILES.filter(t => t.sev === 'green');
+
+    const reds = filtered.filter(t => t.sev === 'red');
+    const ambers = filtered.filter(t => t.sev === 'amber');
+    const greens = filtered.filter(t => t.sev === 'green');
+
+    function tile(t) {
+      const sevClass = t.sev === 'red' ? 'red' : t.sev === 'amber' ? 'amber' : 'green-news';
+      const icon = ({ cal:ICONS.lock, ncr:ICONS.flag, people:ICONS.people, qa:ICONS.signature, capa:ICONS.bell,
+        risk:ICONS.risk, doc:ICONS.doc, supplier:ICONS.supplier, review:ICONS.signature, trace:ICONS.trace,
+        audit:ICONS.audit, customer:ICONS.flag })[t.cat] || ICONS.check;
+      const nav = t.nav ? `data-nav="${t.nav}"` : '';
+      const arrow = t.nav ? `<div class="drawer-tile-arrow">${ICONS.chevron}</div>` : '';
+      return `
+        <div class="drawer-tile ${sevClass}" ${nav}>
+          <div class="drawer-tile-icon">${icon}</div>
+          <div class="drawer-tile-content">
+            <div class="drawer-tile-title">${t.title}</div>
+            <div class="drawer-tile-sub">${t.sub}</div>
+          </div>
+          <div class="drawer-tile-count">${t.count}</div>
+          ${arrow}
+        </div>`;
+    }
+
+    const empty = filtered.length === 0;
+    const allClearMsg = pulseDrawerTab === 'mine' ? 'Nothing assigned to you needs attention right now.' : 'No alerts in this view.';
+
+    return `
+      <div class="drawer-backdrop ${open}" data-close-pulse></div>
+      <div class="drawer ${open}">
+        <div class="drawer-header">
+          <div>
+            <div class="drawer-title">Pulse</div>
+            <div class="drawer-sub">${reds.length} critical · ${ambers.length} review · ${greens.length} healthy</div>
+          </div>
+          <div class="drawer-close" data-close-pulse>✕</div>
+        </div>
+        <div class="drawer-tabs">
+          <div class="drawer-tab ${pulseDrawerTab === 'all' ? 'active' : ''}" data-drawer-tab="all">All Alerts</div>
+          <div class="drawer-tab ${pulseDrawerTab === 'mine' ? 'active' : ''}" data-drawer-tab="mine">Just Mine</div>
+          <div class="drawer-tab ${pulseDrawerTab === 'healthy' ? 'active' : ''}" data-drawer-tab="healthy">Healthy</div>
+        </div>
+        <div class="drawer-body">
+          ${empty ? `
+            <div class="drawer-empty">
+              <div class="drawer-empty-icon">${ICONS.check}</div>
+              <div style="font-weight:600;color:var(--text);margin-bottom:6px">All clear</div>
+              <div>${allClearMsg}</div>
+            </div>
+          ` : `
+            ${reds.length > 0 ? `
+              <div class="drawer-group">
+                <div class="drawer-group-header"><span style="color:var(--red)">●</span><span>Critical</span><div class="drawer-group-count">${reds.length}</div></div>
+                ${reds.map(tile).join('')}
+              </div>` : ''}
+            ${ambers.length > 0 ? `
+              <div class="drawer-group">
+                <div class="drawer-group-header"><span style="color:var(--amber)">●</span><span>Review Needed</span><div class="drawer-group-count">${ambers.length}</div></div>
+                ${ambers.map(tile).join('')}
+              </div>` : ''}
+            ${greens.length > 0 ? `
+              <div class="drawer-group">
+                <div class="drawer-group-header"><span style="color:var(--green)">●</span><span>Healthy &amp; Holding</span><div class="drawer-group-count">${greens.length}</div></div>
+                ${greens.map(tile).join('')}
+              </div>` : ''}
+          `}
+        </div>
+      </div>
+    `;
+  }
+
+  // ====== LOCK INSPECTOR ======
+  function renderInspector() {
+    if (!lockInspectorId) return '<div class="inspector-backdrop" data-close-inspector></div>';
+    const c = LOCK_CHAINS[lockInspectorId];
+    if (!c) return '<div class="inspector-backdrop" data-close-inspector></div>';
+    return `
+      <div class="inspector-backdrop open" data-close-inspector>
+        <div class="inspector-card" onclick="event.stopPropagation()">
+          <div class="inspector-head">
+            <div class="inspector-head-icon">${ICONS.lock}</div>
+            <div style="flex:1">
+              <div class="inspector-title">${c.title}</div>
+              <div class="inspector-sub">${c.sub}</div>
+            </div>
+            <div class="inspector-close" data-close-inspector>✕</div>
+          </div>
+          <div class="chain-body">
+            <div class="chain-intro">Causal chain · top → root</div>
+            ${c.chain.map(link => `
+              <div class="chain-link ${link.terminal ? 'terminal' : ''}" ${link.nav ? `data-nav="${link.nav}"` : ''}>
+                <div class="chain-link-head">
+                  <div class="chain-link-tag">${link.tag}</div>
+                  <div class="chain-link-id">${link.id}</div>
+                  ${link.nav ? `<div class="chain-link-arrow">${ICONS.chevron}</div>` : ''}
+                </div>
+                <div class="chain-link-detail">${link.detail}</div>
+              </div>
+              ${link.because ? `
+                <div class="chain-connector">
+                  <div class="chain-connector-line"></div>
+                  <div class="chain-connector-text">${link.because}</div>
+                  <div class="chain-connector-line"></div>
+                </div>
+              ` : ''}
+            `).join('')}
+          </div>
+          <div class="inspector-actions">
+            <button class="btn">${ICONS.download} Export Chain (PDF)</button>
+            <button class="btn ghost">Copy as Text</button>
+            <button class="btn" style="margin-left:auto" data-close-inspector>Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ====== MODALS ======
+  function renderModal() {
+    if (!modalId) return '<div class="modal-backdrop" data-close-modal></div>';
+    let body;
+    if (modalId === 'modules') body = renderModulesModal();
+    else if (modalId === 'export') body = renderExportModal();
+    else body = '';
+    return `<div class="modal-backdrop open" data-close-modal>${body}</div>`;
+  }
+
+  function renderModulesModal() {
+    return `
+      <div class="modal-card" onclick="event.stopPropagation()">
+        <div class="modal-head">
+          <div class="modal-head-icon purple">${ICONS.module}</div>
+          <div style="flex:1">
+            <div class="modal-title">Compliance Modules</div>
+            <div class="modal-sub">Enable industry-specific compliance modules on top of the ISO 9001:2015 baseline. Each module adds clauses, fields, workflows, and dashboards. Disabling a module hides its UI surface but preserves historical records.</div>
+          </div>
+          <div class="modal-close" data-close-modal>✕</div>
+        </div>
+        <div class="modal-body">
+          ${MODULES.map(m => `
+            <div class="module-row ${m.state === 'base' ? 'active base' : (m.state === 'active' ? 'active' : '')}">
+              <div class="module-row-icon">${m.icon}</div>
+              <div class="module-row-content">
+                <div class="module-row-title">
+                  ${m.name}
+                  <span class="module-row-ver">${m.ver}</span>
+                  ${m.state === 'base' ? '<span class="badge blue"><span class="dot"></span>Base · Required</span>' : ''}
+                  ${m.state === 'active' ? '<span class="badge green"><span class="dot"></span>Active</span>' : ''}
+                  ${m.state === 'available' ? '<span class="badge gray"><span class="dot"></span>Available</span>' : ''}
+                </div>
+                <div class="module-row-desc">${m.desc}</div>
+                <div class="module-row-adds">${m.adds}</div>
+              </div>
+              <div class="module-row-action">
+                ${m.state === 'base' ? '<button class="btn ghost" disabled style="opacity:0.5;cursor:not-allowed">Cannot Disable</button>' :
+                  m.state === 'active' ? '<button class="btn">Configure</button><button class="btn danger">Disable</button>' :
+                  '<button class="btn primary">Enable Module</button><button class="btn ghost">Learn More</button>'}
+              </div>
+            </div>
+          `).join('')}
+          <div class="module-note-row" style="margin-top:14px">
+            <strong style="color:var(--purple)">${ICONS.module} About modules</strong> · Modules are plugin-style. The base product never references module-specific code; modules reference base interfaces. Records authored under an enabled module remain queryable but become read-only if the module is later disabled.
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn">View Audit Log</button>
+          <button class="btn" style="margin-left:auto" data-close-modal>Close</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderExportModal() {
+    return `
+      <div class="modal-card" onclick="event.stopPropagation()">
+        <div class="modal-head">
+          <div class="modal-head-icon blue">${ICONS.package}</div>
+          <div style="flex:1">
+            <div class="modal-title">Customer Portal Export</div>
+            <div class="modal-sub">Generates a customer-facing artifact bundle containing only the records they need to verify conformance. Internal records (NCRs, audit findings) are excluded unless required by a Use-As-Is concession disposition.</div>
+          </div>
+          <div class="modal-close" data-close-modal>✕</div>
+        </div>
+        <div class="modal-body">
+
+          <div class="export-package">
+            <div class="export-package-title">
+              ${ICONS.package} CoC-2026-0489 · J-2026-0791
+              <span class="badge green" style="margin-left:auto"><span class="dot"></span>Released Feb 26</span>
+            </div>
+            <div class="export-package-sub">Aerolith Defense · P/N AD-1184-C · Qty 18 · Lot 4340-A-2026-018</div>
+          </div>
+
+          <div class="export-section">
+            <div class="export-section-title"><span style="color:var(--green)">${ICONS.check}</span> Included in package</div>
+            <div class="export-include"><span class="export-include-check">✓</span><span class="export-include-name">Certificate of Conformance</span><span class="export-include-meta">CoC-2026-0489.pdf</span></div>
+            <div class="export-include"><span class="export-include-check">✓</span><span class="export-include-name">Furnace process chart</span><span class="export-include-meta">FRN02_20260226_0648.pdf</span></div>
+            <div class="export-include"><span class="export-include-check">✓</span><span class="export-include-name">Material mill certificate</span><span class="export-include-meta">MILL-2026-0188.pdf</span></div>
+            <div class="export-include"><span class="export-include-check">✓</span><span class="export-include-name">Hardness inspection report</span><span class="export-include-meta">INSP-J-2026-0791.pdf</span></div>
+            <div class="export-include"><span class="export-include-check">✓</span><span class="export-include-name">Calibration cert — Hardness tester HT-LAB-001</span><span class="export-include-meta">CAL-2025-0398.pdf</span></div>
+            <div class="export-include"><span class="export-include-check">✓</span><span class="export-include-name">Calibration cert — Furnace #2 control TC</span><span class="export-include-meta">CAL-2026-0042.pdf</span></div>
+            <div class="export-include"><span class="export-include-check">✓</span><span class="export-include-name">Traceability summary (HTML index)</span><span class="export-include-meta">index.html</span></div>
+          </div>
+
+          <div class="export-section">
+            <div class="export-section-title"><span style="color:var(--red)">✕</span> Excluded (internal records)</div>
+            <div class="export-exclude"><span class="export-exclude-x">✕</span>Internal NCRs · None apply to this job (job was released without nonconformance)</div>
+            <div class="export-exclude"><span class="export-exclude-x">✕</span>Audit findings · Not customer-facing</div>
+            <div class="export-exclude"><span class="export-exclude-x">✕</span>Risk register entries · Internal governance</div>
+            <div class="export-exclude"><span class="export-exclude-x">✕</span>Supplier audit records · Confidential to EasySynQ</div>
+          </div>
+
+          <div class="export-section">
+            <div class="export-section-title"><span style="color:var(--accent)">${ICONS.package}</span> Package structure</div>
+            <div class="export-tree">
+<span class="export-tree-folder">CoC-2026-0489_J-2026-0791/</span>
+<span class="export-tree-indent"></span><span class="export-tree-file">index.html</span>
+<span class="export-tree-indent"></span><span class="export-tree-folder">certificates/</span>
+<span class="export-tree-indent"></span><span class="export-tree-indent"></span><span class="export-tree-file">CoC-2026-0489.pdf</span>
+<span class="export-tree-indent"></span><span class="export-tree-indent"></span><span class="export-tree-file">INSP-J-2026-0791.pdf</span>
+<span class="export-tree-indent"></span><span class="export-tree-folder">process/</span>
+<span class="export-tree-indent"></span><span class="export-tree-indent"></span><span class="export-tree-file">FRN02_20260226_0648.pdf</span>
+<span class="export-tree-indent"></span><span class="export-tree-folder">traceability/</span>
+<span class="export-tree-indent"></span><span class="export-tree-indent"></span><span class="export-tree-file">MILL-2026-0188.pdf</span>
+<span class="export-tree-indent"></span><span class="export-tree-indent"></span><span class="export-tree-file">CAL-2025-0398.pdf</span>
+<span class="export-tree-indent"></span><span class="export-tree-indent"></span><span class="export-tree-file">CAL-2026-0042.pdf</span>
+<span class="export-tree-indent"></span><span class="export-tree-file">SHA-256-manifest.txt</span>
+<span class="export-tree-indent"></span><span class="export-tree-file">signature.txt</span>
+            </div>
+          </div>
+
+          <div style="padding:12px 14px;background:var(--surface-2);border:1px dashed var(--border-strong);border-radius:8px;font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:10px">
+            <span style="color:var(--text-faint)">${ICONS.signature}</span>
+            <span>Every file in the package is hashed; the package itself is signed by the issuing Quality Manager. The customer can verify integrity using the included <strong style="color:var(--text);font-family:var(--mono)">SHA-256-manifest.txt</strong> against the original signature.</span>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn">Preview Index Page</button>
+          <button class="btn">Customize Inclusions</button>
+          <button class="btn primary" style="margin-left:auto">${ICONS.download} Generate &amp; Download ZIP</button>
+        </div>
+      </div>
+    `;
+  }
+
+  // ====== CONTENT ROUTER ======
+  function renderContent() {
+    switch(currentView) {
+      case 'dashboard': return renderDashboard();
+      case 'documents': return renderDocuments();
+      case 'risk': return renderRisk();
+      case 'review': return renderReview();
+      case 'competency': return renderCompetency();
+      case 'audit': return renderAudit();
+      case 'assets': return renderAssets();
+      case 'job': return renderJob();
+      case 'traceability': return renderTraceability();
+      case 'suppliers': return renderSuppliers();
+      case 'ncr': return renderNCR();
+      default: return placeholder(currentView);
+    }
+  }
+
+  function placeholder(name) {
+    return `<div class="content-header"><div>
+      <div class="content-title">${name}</div>
+      <div class="content-subtitle">Try Dashboard, Documents, Risk Register, Management Review, Competency Matrix, Internal Audits, Assets, Production Jobs, NCRs, Material Traceability, or Suppliers.</div>
+    </div></div>`;
+  }
+
+  // ====== DASHBOARD ======
+  function renderDashboard() {
+    return `
+      <div class="content-header">
+        <div>
+          <div class="content-title">Pulse Dashboard</div>
+          <div class="content-subtitle">Live compliance and operations overview · Last refresh 2 min ago</div>
+        </div>
+        <div class="content-actions">
+          <button class="btn"><span>${ICONS.filter}</span>Last 30 days</button>
+          <button class="btn">${ICONS.download} Export</button>
+        </div>
+      </div>
+      <div class="content-body">
+
+        <div class="good-news-bar">
+          <span class="good-news-icon">${ICONS.check}</span>
+          <span class="good-news-label">Healthy &amp; Holding</span>
+          <div class="good-news-item"><strong>47 days</strong> since last Major NCR</div>
+          <div class="good-news-item"><strong>100%</strong> material lots traceable</div>
+          <div class="good-news-item"><strong>0</strong> customer complaints YTD</div>
+          <div class="good-news-item"><strong>${ICONS.check}</strong> Mgmt Review on cadence</div>
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-label">First Pass Yield</div><div class="stat-value">97.4%</div><div class="stat-trend up">▲ 1.2% vs last month</div></div>
+          <div class="stat-card"><div class="stat-label">Jobs Released (MTD)</div><div class="stat-value">284</div><div class="stat-trend up">▲ 18 vs last month</div></div>
+          <div class="stat-card"><div class="stat-label">Equipment Uptime</div><div class="stat-value">94.1%</div><div class="stat-trend down">▼ 0.6% vs last month</div></div>
+          <div class="stat-card"><div class="stat-label">NCRs This Quarter</div><div class="stat-value">7</div><div class="stat-trend up">▲ 2 vs last quarter</div></div>
+        </div>
+
+        <div class="dash-grid">
+          <div class="card">
+            <div class="card-header"><div class="card-title">First Pass Yield — Trailing 12 Months</div><div class="card-sub">Target 95% · Actual 97.4%</div></div>
+            <div class="card-body">
+              <div class="chart-fpy">
+                <svg viewBox="0 0 600 200" width="100%" height="100%" preserveAspectRatio="none">
+                  <defs><linearGradient id="fpyGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#4a9eff" stop-opacity="0.3"/><stop offset="100%" stop-color="#4a9eff" stop-opacity="0"/></linearGradient></defs>
+                  <line class="chart-grid" x1="0" y1="40" x2="600" y2="40"/>
+                  <line class="chart-grid" x1="0" y1="90" x2="600" y2="90"/>
+                  <line class="chart-grid" x1="0" y1="140" x2="600" y2="140"/>
+                  <line class="chart-target" x1="0" y1="60" x2="600" y2="60"/>
+                  <text class="chart-label" x="4" y="36">100%</text>
+                  <text class="chart-label" x="4" y="86">95%</text>
+                  <text class="chart-label" x="4" y="136">90%</text>
+                  <path class="chart-area" d="M 30 80 L 80 70 L 130 90 L 180 50 L 230 65 L 280 45 L 330 60 L 380 35 L 430 50 L 480 30 L 530 40 L 580 28 L 580 200 L 30 200 Z"/>
+                  <path class="chart-line" d="M 30 80 L 80 70 L 130 90 L 180 50 L 230 65 L 280 45 L 330 60 L 380 35 L 430 50 L 480 30 L 530 40 L 580 28"/>
+                  ${[[30,80],[80,70],[130,90],[180,50],[230,65],[280,45],[330,60],[380,35],[430,50],[480,30],[530,40],[580,28]].map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="3" fill="#4a9eff"/>`).join('')}
+                  ${['Jun','Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May'].map((m, i) => `<text class="chart-label" x="${[30,80,130,180,230,280,330,380,430,480,530,580][i]}" y="180" text-anchor="middle">${m}</text>`).join('')}
+                </svg>
+              </div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><div class="card-title">NCR Pareto — Root Causes</div><div class="card-sub">YTD</div></div>
+            <div class="card-body">
+              ${[{l:'Furnace drift',v:38,c:12},{l:'Op. error',v:28,c:9},{l:'Material',v:18,c:6},{l:'Fixturing',v:12,c:4},{l:'Other',v:6,c:2}].map(r => `
+                <div class="pareto-row"><div class="pareto-label">${r.l}</div><div class="pareto-bar"><div class="pareto-fill" style="width:${r.v*2.5}%"></div></div><div class="pareto-count">${r.c}</div></div>`).join('')}
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header"><div class="card-title">Action Queue</div><div class="card-sub">Items requiring your attention</div></div>
+          <table class="data" style="border:none;border-radius:0">
+            <thead><tr><th>Priority</th><th>Item</th><th>Owner</th><th>Reference</th><th>Due</th><th></th></tr></thead>
+            <tbody>
+              <tr class="row-locked"><td><span class="badge red"><span class="dot"></span>Overdue</span></td><td>Calibration past due — Load TC #1</td><td>J. Hayes</td><td class="mono">FRN-03-TC1</td><td>3 days overdue</td><td><a class="btn" data-nav="assets">Open</a></td></tr>
+              <tr class="row-locked"><td><span class="badge red"><span class="dot"></span>Held</span></td><td>Hardness out of tolerance — pending NCR disposition</td><td>M. Rodriguez</td><td class="mono">NCR-2026-0033</td><td>Today</td><td><a class="btn" data-nav="ncr">Open</a></td></tr>
+              <tr class="row-warn"><td><span class="badge amber"><span class="dot"></span>Review</span></td><td>QA sign-off required on chart</td><td>M. Rodriguez</td><td class="mono">J-2026-0847</td><td>Today</td><td><a class="btn" data-nav="job">Open</a></td></tr>
+              <tr class="row-warn"><td><span class="badge amber"><span class="dot"></span>Quals</span></td><td>D. Park — SOP-HT-001 retraining required</td><td>M. Rodriguez</td><td class="mono">COMP-OP-PARK</td><td>5 days</td><td><a class="btn" data-nav="competency">Open</a></td></tr>
+              <tr class="row-warn"><td><span class="badge amber"><span class="dot"></span>Risk</span></td><td>Quarterly risk register review</td><td>M. Rodriguez</td><td class="mono">R-2026-Q2</td><td>9 days</td><td><a class="btn" data-nav="risk">Open</a></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  // ====== DOCUMENTS ======
+  function renderDocuments() {
+    return `
+      <div class="content-header">
+        <div><div class="content-title">Document Controller</div><div class="content-subtitle">Internal Library · 47 controlled documents · ISO 9001 §7.5</div></div>
+        <div class="content-actions"><button class="btn">${ICONS.filter} Filters</button><button class="btn primary">${ICONS.plus} New Document</button></div>
+      </div>
+      <div class="content-body">
+        <div class="toolbar">
+          <div class="filter-chip active">All</div><div class="filter-chip">Internal (32)</div><div class="filter-chip">External Reference (15)</div><div class="filter-chip">Draft (3)</div><div class="filter-chip">Active (38)</div>
+        </div>
+        <div class="compat-banner">
+          <div style="width:32px;height:32px;border-radius:8px;background:rgba(210,153,34,0.2);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--amber);flex-shrink:0">⚑</div>
+          <div style="flex:1">
+            <div style="font-weight:600;font-size:12px;margin-bottom:2px">Compatibility Review Required</div>
+            <div style="font-size:11px;color:var(--text-dim)">ASTM E18 updated to Rev 2024-A. <strong style="color:var(--text)">SOP-HT-014</strong> references it.</div>
+          </div>
+          <button class="btn">Review Now</button>
+        </div>
+        <div class="doc-layout">
+          <div class="doc-list">
+            ${[
+              {t:'SOP-HT-014 — Rockwell Hardness Testing', b:'green', l:'Rev B · Active', active:true},
+              {t:'SOP-HT-001 — Furnace Operation', b:'green', l:'Rev D · Active'},
+              {t:'WI-LAB-008 — Specimen Preparation', b:'amber', l:'In Review'},
+              {t:'SOP-QA-002 — NCR Procedure', b:'green', l:'Rev C · Active'},
+              {t:'SOP-HT-014 — Rockwell Hardness', b:'gray', l:'Rev A · Superseded'},
+              {t:'SOP-MAINT-003 — Calibration Protocol', b:'green', l:'Rev B · Active'},
+              {t:'ASTM E18-2024A — Standard Test Method', b:'blue', l:'External Reference'},
+              {t:'AMS 2759/4 — Heat Treatment Spec', b:'blue', l:'External Reference'}
+            ].map(d => `
+              <div class="doc-item ${d.active ? 'active' : ''}">
+                <div class="doc-item-title">${d.t}</div>
+                <div class="doc-item-meta"><span class="badge ${d.b}"><span class="dot"></span>${d.l}</span></div>
+              </div>`).join('')}
+          </div>
+          <div class="doc-viewer">
+            <div class="doc-viewer-toolbar">
+              <div style="font-weight:600;font-size:12px">SOP-HT-014 · Rev B</div>
+              <span class="badge green"><span class="dot"></span>Active</span>
+              <span class="badge gray">Effective 2026-02-14</span>
+              <div style="margin-left:auto;display:flex;gap:6px">
+                <button class="btn">${ICONS.download} Export PDF</button>
+                <button class="btn primary">New Revision</button>
+              </div>
+            </div>
+            <div class="doc-page">
+              <div class="doc-page-paper">
+                <h1>Rockwell Hardness Testing</h1>
+                <div class="doc-meta">SOP-HT-014 · Revision B · Effective February 14, 2026<br/>Owner: Quality Manager · Approved by M. Rodriguez</div>
+                <h2>1. Purpose</h2>
+                <p>This Standard Operating Procedure establishes the requirements for performing Rockwell hardness testing on heat-treated components.</p>
+                <h2>2. Scope</h2>
+                <p>Applies to all hardness verification activities performed in the metallurgy laboratory in accordance with ASTM E18-2024A.</p>
+                <h2>3. References</h2>
+                <p>ASTM E18-2024A — Standard Test Method for Rockwell Hardness<br/>AMS 2759/4 — Heat Treatment Specifications</p>
+                <h2>4. Equipment</h2>
+                <p>Calibrated Rockwell hardness tester (Asset HT-LAB-001), diamond brale indenter, tungsten carbide ball indenter.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ====== RISK ======
+  function renderRisk() {
+    const risks = [
+      { id: 'R-01', t: 'Critical furnace control failure', l: 2, i: 5, sev: 'high', own: 'J. Hayes', rev: 'Mar 5', status: 'Mitigated' },
+      { id: 'R-02', t: 'Thermocouple calibration drift', l: 3, i: 3, sev: 'med', own: 'K. Patel', rev: 'Feb 18', status: 'Monitoring' },
+      { id: 'R-03', t: 'Customer spec revision missed', l: 2, i: 4, sev: 'med', own: 'M. Rodriguez', rev: 'Jan 30', status: 'Mitigated' },
+      { id: 'R-04', t: 'Raw material lot mix-up', l: 1, i: 4, sev: 'med', own: 'T. Wallace', rev: 'Mar 1', status: 'Monitoring' },
+      { id: 'R-05', t: 'Key person dependency — QM', l: 3, i: 4, sev: 'high', own: 'M. Rodriguez', rev: 'Overdue', status: 'Open' },
+      { id: 'R-06', t: 'Operator certification expiry', l: 3, i: 2, sev: 'low', own: 'M. Rodriguez', rev: 'Feb 28', status: 'Monitoring' },
+      { id: 'R-07', t: 'Snapshot / backup corruption', l: 1, i: 3, sev: 'low', own: 'IT', rev: 'Jan 12', status: 'Mitigated' },
+      { id: 'R-08', t: 'Quench medium degradation', l: 2, i: 3, sev: 'med', own: 'J. Hayes', rev: 'Mar 4', status: 'Monitoring' }
+    ];
+    const bubbles = {};
+    risks.forEach(r => { const k = `${r.l}-${r.i}`; bubbles[k] = bubbles[k] || []; bubbles[k].push(r); });
+    function cellClass(l, i) {
+      const s = l * i;
+      if (s >= 15) return 'l5'; if (s >= 10) return 'l4'; if (s >= 6) return 'l3'; if (s >= 3) return 'l2'; return 'l1';
+    }
+    let m = '<div class="risk-matrix"><div></div>';
+    for (let l = 1; l <= 5; l++) m += `<div class="rm-label">L${l}</div>`;
+    for (let i = 5; i >= 1; i--) {
+      m += `<div class="rm-label">I${i}</div>`;
+      for (let l = 1; l <= 5; l++) {
+        const cr = bubbles[`${l}-${i}`] || [];
+        m += `<div class="rm-cell ${cellClass(l, i)}">${cr.map(r => `<div class="rm-bubble" title="${r.t}">${r.id.split('-')[1]}</div>`).join('')}</div>`;
+      }
+    }
+    m += '</div>';
+
+    return `
+      <div class="content-header">
+        <div><div class="content-title">Risk Register</div><div class="content-subtitle">ISO 9001 §6.1 · 8 active risks · 1 review overdue</div></div>
+        <div class="content-actions"><button class="btn">${ICONS.download} Export</button><button class="btn primary">${ICONS.plus} New Risk</button></div>
+      </div>
+      <div class="content-body">
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-label">High Severity</div><div class="stat-value" style="color:var(--red)">2</div></div>
+          <div class="stat-card"><div class="stat-label">Medium</div><div class="stat-value" style="color:var(--amber)">4</div></div>
+          <div class="stat-card"><div class="stat-label">Low</div><div class="stat-value" style="color:var(--green)">2</div></div>
+          <div class="stat-card"><div class="stat-label">Review Overdue</div><div class="stat-value" style="color:var(--red)">1</div></div>
+        </div>
+        <div class="risk-layout">
+          <div class="card">
+            <div class="card-header"><div class="card-title">Risk Heat Map</div><div class="card-sub">Likelihood × Impact</div></div>
+            <div class="card-body">
+              <div style="display:flex;gap:8px;margin-bottom:12px"><div style="font-size:9px;color:var(--text-faint);writing-mode:vertical-rl;transform:rotate(180deg);align-self:center">IMPACT →</div><div style="flex:1">${m}</div></div>
+              <div style="text-align:center;font-size:9px;color:var(--text-faint);margin-top:4px">LIKELIHOOD →</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><div class="card-title">Top Risks</div><div class="card-sub">By score</div></div>
+            <div class="card-body" style="padding:0">
+              ${risks.sort((a,b) => (b.l*b.i) - (a.l*a.i)).slice(0, 5).map(r => `
+                <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">
+                  <span class="badge ${r.sev === 'high' ? 'red' : r.sev === 'med' ? 'amber' : 'green'}" style="font-family:var(--mono);min-width:42px;justify-content:center">${r.id}</span>
+                  <div style="flex:1;min-width:0">
+                    <div style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.t}</div>
+                    <div style="font-size:10px;color:var(--text-dim);margin-top:2px">Score ${r.l*r.i}</div>
+                  </div>
+                </div>`).join('')}
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-title">All Risks</div></div>
+          <table class="data" style="border:none;border-radius:0">
+            <thead><tr><th>ID</th><th>Risk</th><th>L</th><th>I</th><th>Score</th><th>Severity</th><th>Owner</th><th>Last Review</th><th>Status</th></tr></thead>
+            <tbody>
+              ${risks.map(r => `
+                <tr ${r.rev === 'Overdue' ? 'class="row-locked"' : ''}>
+                  <td class="mono">${r.id}</td><td>${r.t}</td><td class="mono">${r.l}</td><td class="mono">${r.i}</td><td class="mono"><strong>${r.l*r.i}</strong></td>
+                  <td><span class="badge ${r.sev === 'high' ? 'red' : r.sev === 'med' ? 'amber' : 'green'}"><span class="dot"></span>${r.sev}</span></td>
+                  <td>${r.own}</td><td style="${r.rev === 'Overdue' ? 'color:var(--red);font-weight:600' : ''}">${r.rev}</td><td>${r.status}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  // ====== MGMT REVIEW ======
+  function renderReview() {
+    return `
+      <div class="content-header">
+        <div><div class="content-title">Q1 2026 Management Review</div><div class="content-subtitle">Held Apr 15, 2026 · Required by ISO 9001 §9.3</div></div>
+        <div class="content-actions"><span class="badge green"><span class="dot"></span>Completed &amp; Signed</span><button class="btn">${ICONS.download} Minutes PDF</button></div>
+      </div>
+      <div class="content-body">
+        <div class="card" style="margin-bottom:14px">
+          <div class="card-header"><div class="card-title">Meeting Information</div></div>
+          <div class="card-body">
+            <div class="info-grid" style="grid-template-columns:repeat(3,1fr)">
+              <div><div class="info-label">Date / Time</div><div class="info-value">Apr 15, 2026 · 1:00 PM CDT</div></div>
+              <div><div class="info-label">Duration</div><div class="info-value">1h 42m</div></div>
+              <div><div class="info-label">Chair</div><div class="info-value">M. Rodriguez · QM</div></div>
+            </div>
+            <div class="divider"></div>
+            <div class="info-label">Attendees</div>
+            <div style="margin-top:8px">
+              <span class="attendee-chip"><span class="attendee-dot">MR</span>M. Rodriguez · QM</span>
+              <span class="attendee-chip"><span class="attendee-dot">KP</span>K. Patel · QA Lead</span>
+              <span class="attendee-chip"><span class="attendee-dot">JH</span>J. Hayes · Maintenance</span>
+              <span class="attendee-chip"><span class="attendee-dot">SK</span>S. Kim · Ops Mgr</span>
+              <span class="attendee-chip"><span class="attendee-dot">DC</span>D. Chen · President</span>
+            </div>
+          </div>
+        </div>
+        <div class="mr-section">
+          <div class="mr-section-head">
+            <span class="mr-clause-tag">§9.3.2</span><div class="mr-section-title">Required Inputs</div>
+            <span class="badge green" style="margin-left:auto"><span class="dot"></span>7 of 7</span>
+          </div>
+          <div class="mr-input-row"><div class="mr-input-check">${ICONS.check}</div><div><strong>Status of actions from previous reviews</strong><div class="mr-input-meta">3 of 4 closed · 1 carry-forward</div></div></div>
+          <div class="mr-input-row"><div class="mr-input-check">${ICONS.check}</div><div><strong>Customer satisfaction &amp; feedback</strong><div class="mr-input-meta">2 complaints · 1 commendation · OTD 96.4%</div></div></div>
+          <div class="mr-input-row"><div class="mr-input-check">${ICONS.check}</div><div><strong>Quality objectives — performance</strong><div class="mr-input-meta">FPY 97.4% (target 95%) · NCRs 7 YTD</div></div></div>
+          <div class="mr-input-row"><div class="mr-input-check">${ICONS.check}</div><div><strong>Nonconformities &amp; corrective actions</strong><div class="mr-input-meta">7 NCRs · 4 CAPAs closed · Furnace drift leading cause</div></div></div>
+          <div class="mr-input-row"><div class="mr-input-check">${ICONS.check}</div><div><strong>Risks &amp; opportunities</strong><div class="mr-input-meta">8 active · 2 high · R-05 escalated</div></div></div>
+        </div>
+        <div class="sig-block">
+          <div class="sig-header"><div class="sig-icon" style="color:var(--accent)">${ICONS.signature}</div><div><div class="sig-title">Signed by M. Rodriguez</div><div class="sig-sub">Quality Manager · Meeting Chair</div></div></div>
+          <div class="sig-details">
+            <div><div class="sig-detail-label">Signed (UTC)</div><div class="sig-detail-value">2026-04-15 18:42:11Z</div></div>
+            <div><div class="sig-detail-label">Payload Hash</div><div class="sig-detail-value">sha256: a91f…3d28</div></div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ====== COMPETENCY ======
+  function renderCompetency() {
+    const skills = ['SOP-HT-001 R-D','SOP-HT-014 R-B','SOP-QA-002 R-C','SOP-MAINT-003 R-B','WI-LAB-008','Forklift','Hot Work','Crane / Hoist','Internal Auditor'];
+    const ops = [
+      { name: 'M. Rodriguez', role: 'Quality Manager', s: ['q','q','q','q','n','n','n','n','q'] },
+      { name: 'K. Patel', role: 'QA Lead', s: ['q','q','q','q','q','n','n','n','q'] },
+      { name: 'T. Wallace', role: 'Operator', s: ['q','q','n','n','n','q','q','q','n'] },
+      { name: 'R. Chen', role: 'Lab Tech', s: ['n','q','q','n','q','n','n','n','n'] },
+      { name: 'J. Hayes', role: 'Maintenance', s: ['q','n','n','q','n','q','q','e','n'] },
+      { name: 'D. Park', role: 'Operator', s: ['x','t','n','n','n','q','q','q','n'] },
+      { name: 'L. Martinez', role: 'Operator', s: ['q','q','n','n','n','q','e','q','n'] },
+      { name: 'A. Singh', role: 'Operator (New)', s: ['t','t','n','n','t','q','n','n','n'] }
+    ];
+    const cellMap = { q: ['qual', '✓'], e: ['expiring', '⚠'], x: ['expired', '⊘'], t: ['training', '◐'], n: ['na', '—'] };
+
+    return `
+      <div class="content-header">
+        <div><div class="content-title">Competency Matrix</div><div class="content-subtitle">ISO 9001 §7.2 · 8 operators · 9 tracked competencies · 1 expired</div></div>
+        <div class="content-actions"><button class="btn">${ICONS.download} Export</button><button class="btn primary">${ICONS.plus} Record Training</button></div>
+      </div>
+      <div class="content-body">
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-label">Qualified</div><div class="stat-value" style="color:var(--green)">38</div></div>
+          <div class="stat-card"><div class="stat-label">Expiring &lt; 30d</div><div class="stat-value" style="color:var(--amber)">2</div></div>
+          <div class="stat-card"><div class="stat-label">Expired</div><div class="stat-value" style="color:var(--red)">1</div></div>
+          <div class="stat-card"><div class="stat-label">In Training</div><div class="stat-value" style="color:var(--accent)">4</div></div>
+        </div>
+
+        <div class="compat-banner lock-trigger" style="background:rgba(248,81,73,0.06);border-color:rgba(248,81,73,0.3)" data-lock="park-locked">
+          <div style="width:32px;height:32px;border-radius:8px;background:rgba(248,81,73,0.2);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--red);flex-shrink:0">${ICONS.lock}</div>
+          <div style="flex:1">
+            <div style="font-weight:600;font-size:12px;margin-bottom:2px">Production Lockout — D. Park</div>
+            <div style="font-size:11px;color:var(--text-dim)">SOP-HT-001 qualification expired. Cannot be selected as Operator on Furnace jobs.</div>
+          </div>
+          <button class="btn">Schedule Retraining</button>
+        </div>
+
+        <div class="comp-matrix">
+          <table class="comp-table">
+            <thead><tr><th class="sticky-l">Operator</th>${skills.map(s => `<th><div class="vert">${s}</div></th>`).join('')}</tr></thead>
+            <tbody>
+              ${ops.map(op => `
+                <tr>
+                  <td class="sticky-l"><div class="comp-op">${op.name}</div><div class="comp-op-role">${op.role}</div></td>
+                  ${op.s.map(st => `<td><div class="comp-cell ${cellMap[st][0]}">${cellMap[st][1]}</div></td>`).join('')}
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="comp-legend">
+          <div class="comp-legend-item"><div class="comp-legend-dot" style="background:rgba(63,185,80,0.12);color:var(--green)">✓</div>Qualified</div>
+          <div class="comp-legend-item"><div class="comp-legend-dot" style="background:rgba(210,153,34,0.12);color:var(--amber)">⚠</div>Expiring &lt; 30d</div>
+          <div class="comp-legend-item"><div class="comp-legend-dot" style="background:rgba(248,81,73,0.12);color:var(--red)">⊘</div>Expired</div>
+          <div class="comp-legend-item"><div class="comp-legend-dot" style="background:rgba(74,158,255,0.1);color:var(--accent)">◐</div>In training</div>
+          <div class="comp-legend-item"><div class="comp-legend-dot" style="color:var(--text-faint)">—</div>N/A</div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ====== AUDIT ======
+  function clauseRow(num, title, rating, desc, evidence, findingId) {
+    const ratings = ['Conforming', 'Minor', 'Major', 'Observation'];
+    const classes = { Conforming: 'conf', Minor: 'minor', Major: 'major', Observation: 'obs' };
+    const rowStyle = rating === 'Minor' ? 'border-color:rgba(210,153,34,0.3);background:rgba(210,153,34,0.03)'
+                    : rating === 'Major' ? 'border-color:rgba(248,81,73,0.3);background:rgba(248,81,73,0.03)'
+                    : rating === 'Observation' ? 'border-color:rgba(74,158,255,0.3);background:rgba(74,158,255,0.03)' : '';
+    return `
+      <div class="clause-row" style="${rowStyle}">
+        <div class="clause-header">
+          <div class="clause-num">${num}</div>
+          <div class="clause-title">${title}</div>
+          <div class="rating-group">${ratings.map(r => `<div class="rating-chip ${rating === r ? 'selected ' + classes[r] : ''}">${r}</div>`).join('')}</div>
+        </div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">${desc}</div>
+        <div class="evidence-pills">
+          ${evidence.map(e => `<div class="evidence-pill">⚯ ${e}</div>`).join('')}
+          ${findingId ? `<div class="evidence-pill" style="color:var(--amber);border-color:var(--amber)">⚑ ${findingId}</div>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderAudit() {
+    return `
+      <div class="content-header">
+        <div><div class="content-title">ISO 9001:2015 — Q2 2026 Internal Audit</div><div class="content-subtitle">Auditor K. Patel · 22 of 47 clauses reviewed</div></div>
+        <div class="content-actions"><button class="btn">Audit Plan</button><button class="btn">${ICONS.download} War Room Export</button><button class="btn primary">Save Progress</button></div>
+      </div>
+      <div class="content-body">
+        <div class="audit-tabs">
+          <div class="audit-tab active">ISO 9001 <span class="ver">:2015</span><span class="badge gray" style="margin-left:4px">22/47</span></div>
+          <div class="audit-tab locked" data-modal="modules">${ICONS.lock} AS9100 <span class="ver">Rev D</span><span class="badge gray" style="margin-left:4px">Enable</span></div>
+          <div class="audit-tab locked" data-modal="modules">${ICONS.lock} AMS 2750 <span class="ver">Rev G</span><span class="badge gray" style="margin-left:4px">Enable</span></div>
+          <div class="audit-tab locked" data-modal="modules">${ICONS.lock} CQI-9 <span class="ver">v4</span><span class="badge gray" style="margin-left:4px">Enable</span></div>
+          <div class="audit-tab locked" data-modal="modules">${ICONS.lock} IATF 16949<span class="badge gray" style="margin-left:4px">Enable</span></div>
+        </div>
+        <div class="module-note-row">
+          <strong style="color:var(--purple)">${ICONS.module} Industry-specific modules</strong> · Click any locked tab above or the module chip in the top bar to enable.
+        </div>
+        <div class="stat-grid" style="grid-template-columns:repeat(5,1fr)">
+          <div class="stat-card"><div class="stat-label">Conforming</div><div class="stat-value" style="color:var(--green)">16</div></div>
+          <div class="stat-card"><div class="stat-label">Minor</div><div class="stat-value" style="color:var(--amber)">3</div></div>
+          <div class="stat-card"><div class="stat-label">Major</div><div class="stat-value" style="color:var(--red)">1</div></div>
+          <div class="stat-card"><div class="stat-label">Observation</div><div class="stat-value" style="color:var(--accent)">2</div></div>
+          <div class="stat-card"><div class="stat-label">Remaining</div><div class="stat-value">25</div></div>
+        </div>
+        <div class="clause-section-header"><div class="clause-section-num">§7</div><div class="clause-section-title">Support</div><div class="clause-section-progress">7 of 9 clauses reviewed</div></div>
+        <div class="clause-section-body">
+          ${clauseRow('7.1.5.1','Monitoring and measuring resources','Conforming','Assets identified, calibrated, traceable. Asset module enforces OOS lockout system-wide.',['FRN-03-TC1','HT-LAB-001'])}
+          ${clauseRow('7.1.5.2','Measurement traceability','Minor','NIST-traceable. Finding: FRN-03-TC1 cal interval exceeded by 3 days before lockout triggered.',['FRN-03-TC1','MWO-2026-0019'],'F-2026-Q2-007')}
+          ${clauseRow('7.2','Competence','Conforming','Competency Matrix shows current qualification status per operator × SOP. Doc revisions auto-trigger retraining.',['Competency Matrix','D. Park lockout'])}
+        </div>
+        <div class="clause-section-header"><div class="clause-section-num">§8</div><div class="clause-section-title">Operation</div><div class="clause-section-progress">5 of 14 clauses reviewed</div></div>
+        <div class="clause-section-body">
+          ${clauseRow('8.5.1','Control of production and service provision','Conforming','Job Travelers enforce template-first creation. Chart import with SHA-256 hash on every job.',['J-2026-0847','PartMaster AD-1184-C'])}
+          ${clauseRow('8.5.2','Identification and traceability','Conforming','Forward and backward traceability from CoC → Job → Charts → Inspection → Assets → Lot.',['CoC-2026-0512','Lot 4340-A-2026-018'])}
+          ${clauseRow('8.7','Control of nonconforming outputs','Major','NCR red-light workflow holds nonconforming jobs. Finding: NCR-2026-0019 closed without evidence link.',['NCR-2026-0019'],'F-2026-Q2-011')}
+        </div>
+      </div>
+    `;
+  }
+
+  // ====== ASSETS ======
+  function pmTask(s, title, sched, last, next, owner) {
+    const dotClass = s === 'overdue' ? 'oos' : (s === 'due' ? '' : 'active');
+    const dotStyle = s === 'due' ? 'background:var(--amber);box-shadow:0 0 0 3px rgba(210,153,34,0.15)' : '';
+    const nextClass = s === 'overdue' ? 'overdue-text' : (s === 'due' ? 'due-text' : '');
+    return `
+      <div class="pm-card ${s}">
+        <div class="pm-card-header"><span class="asset-status-dot ${dotClass}" style="${dotStyle}"></span><div class="pm-title">${title}</div></div>
+        <span class="pm-schedule">${sched}</span>
+        <div class="pm-meta">
+          <div><span>Last</span><span>${last}</span></div>
+          <div><span>Next</span><span class="${nextClass}">${next}</span></div>
+          <div><span>Owner</span><span>${owner}</span></div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderAssets() {
+    return `
+      <div class="content-header">
+        <div><div class="content-title">Furnace #3</div><div class="content-subtitle">FRN-03 · Pyromet Box Furnace · 9 child components</div></div>
+        <div class="content-actions">
+          <span class="badge green"><span class="dot"></span>Active</span>
+          <span class="badge amber"><span class="dot"></span>1 child OOS</span>
+          <button class="btn primary">${ICONS.plus} Log PM / Calibration</button>
+        </div>
+      </div>
+      <div class="content-body">
+
+        <div class="oos-banner lock-trigger" data-lock="tc-oos">
+          <div class="oos-lock">${ICONS.lock}</div>
+          <div style="flex:1">
+            <div style="font-weight:700;font-size:13px;margin-bottom:3px">Load TC #1 is locked out of production</div>
+            <div style="font-size:11px;color:var(--text-dim)">Set OOS on Mar 8, 2026 after failed calibration. MWO-2026-0019 open. Selection blocked system-wide.</div>
+          </div>
+          <button class="btn danger">View Work Order</button>
+        </div>
+
+        <div class="detail-grid">
+          <div class="detail-main">
+            <div class="card">
+              <div class="card-header"><div class="card-title">Equipment Hierarchy</div><div class="card-sub">9 child components · 1 OOS</div></div>
+              <div class="card-body" style="padding:10px">
+                <div class="asset-tree" style="border:none;padding:0">
+                  <div class="asset-node selected"><span class="asset-status-dot active"></span><strong>Furnace #3</strong><span style="color:var(--text-dim);font-size:11px;margin-left:4px">· FRN-03 · S/N PMT-2018-441</span></div>
+                  <div class="asset-children">
+                    <div style="font-size:10px;color:var(--text-faint);font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:8px 10px 4px">Controllers &amp; Recording</div>
+                    <div class="asset-node"><span class="asset-status-dot active"></span>Temperature Controller · Honeywell DR4500<span style="color:var(--text-dim);font-size:11px;margin-left:auto" class="mono">FRN-03-TCL · cal 84d</span></div>
+                    <div class="asset-node"><span class="asset-status-dot active"></span>Hi-Limit Controller · Honeywell UDC3500<span style="color:var(--text-dim);font-size:11px;margin-left:auto" class="mono">FRN-03-HLC · cal 42d</span></div>
+                    <div class="asset-node"><span class="asset-status-dot active"></span>Atmosphere Controller · Eurotherm 2704<span style="color:var(--text-dim);font-size:11px;margin-left:auto" class="mono">FRN-03-ATM · cal 67d</span></div>
+                    <div class="asset-node"><span class="asset-status-dot active"></span>Chart Recorder · Honeywell DR4300<span style="color:var(--text-dim);font-size:11px;margin-left:auto" class="mono">FRN-03-REC · cal 88d</span></div>
+                    <div style="font-size:10px;color:var(--text-faint);font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:12px 10px 4px">Thermocouples</div>
+                    <div class="asset-node"><span class="asset-status-dot active"></span>Control TC · Type K<span style="color:var(--text-dim);font-size:11px;margin-left:auto" class="mono">FRN-03-TC-CTL · cal 23d</span></div>
+                    <div class="asset-node lock-trigger" data-lock="tc-oos" style="border-radius:6px"><span class="asset-status-dot oos"></span>Load TC #1 · Type K<span style="color:var(--red);font-size:11px;font-weight:600;margin-left:auto" class="mono">FRN-03-TC1 · OOS · 3d overdue</span></div>
+                    <div class="asset-node"><span class="asset-status-dot active"></span>Load TC #2 · Type K<span style="color:var(--text-dim);font-size:11px;margin-left:auto" class="mono">FRN-03-TC2 · cal 56d</span></div>
+                    <div class="asset-node"><span class="asset-status-dot active"></span>Hi-Limit TC · Type N<span style="color:var(--text-dim);font-size:11px;margin-left:auto" class="mono">FRN-03-TC-HL · cal 18d</span></div>
+                    <div style="font-size:10px;color:var(--text-faint);font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:12px 10px 4px">Auxiliary</div>
+                    <div class="asset-node"><span class="asset-status-dot active"></span>Quench Tank · Polymer (25%)<span style="color:var(--text-dim);font-size:11px;margin-left:auto" class="mono">FRN-03-QT · check 2d</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="module-note-row">
+              <strong style="color:var(--purple)">${ICONS.module} AMS 2750 / CQI-9 modules available</strong> · <a data-modal="modules" style="color:var(--purple);cursor:pointer;text-decoration:underline">Enable an industry module</a> to add pyrometry-specific tracking — TUS, SAT, instrument typing, qualified range envelopes.
+            </div>
+
+            <div class="card">
+              <div class="card-header"><div class="card-title">Preventive Maintenance</div><div class="card-sub">9 tasks · 2 due · 1 overdue</div><button class="btn" style="margin-left:auto">${ICONS.plus} Add Task</button></div>
+              <div class="card-body">
+                <div class="toolbar" style="margin-bottom:14px">
+                  <div class="filter-chip active">All (9)</div><div class="filter-chip">Daily (2)</div><div class="filter-chip">Weekly (1)</div><div class="filter-chip">Monthly (2)</div><div class="filter-chip">Quarterly (1)</div><div class="filter-chip">Annual (2)</div><div class="filter-chip">By Hours (1)</div>
+                </div>
+                <div class="pm-grid">
+                  ${pmTask('overdue', 'Door seal &amp; gasket inspection', 'Weekly', 'Mar 1', 'Mar 8 · 3d OVERDUE', 'J. Hayes')}
+                  ${pmTask('due', 'Atmosphere flow &amp; pressure check', 'Daily', 'Mar 10', 'Today', 'T. Wallace')}
+                  ${pmTask('due', 'Burner flame inspection', 'Monthly', 'Feb 14', 'Mar 14 · 3d', 'J. Hayes')}
+                  ${pmTask('ok', 'Visual furnace exterior walkdown', 'Daily', 'Mar 10', 'Tomorrow', 'T. Wallace')}
+                  ${pmTask('ok', 'Thermocouple sheath inspection', 'Monthly', 'Feb 28', 'Mar 28 · 17d', 'J. Hayes')}
+                  ${pmTask('ok', 'Insulation &amp; refractory survey', 'Quarterly', 'Jan 18', 'Apr 18 · 38d', 'J. Hayes')}
+                  ${pmTask('ok', 'Hi-Limit functional shutdown test', 'Annual', 'Apr 12, 2025', 'Apr 12 · 32d', 'K. Patel')}
+                  ${pmTask('ok', 'Blower motor bearing lubrication', '2,000 hrs', '1,420 hrs', '580 hrs remain', 'J. Hayes')}
+                  ${pmTask('ok', 'Filter media replacement', '500 cycles', 'cycle 4,210', '292 cycles', 'T. Wallace')}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div>${renderHistoryPanel('asset')}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ====== JOB ======
+  function renderJob() {
+    return `
+      <div class="content-header">
+        <div><div class="content-title">Job J-2026-0847</div><div class="content-subtitle">Aerolith Defense · P/N AD-1184-C · Lot 4340-A-2026-018</div></div>
+        <div class="content-actions">
+          <span class="badge amber lock-trigger" data-lock="job-held" style="cursor:pointer"><span class="dot"></span>Held · Tap to inspect</span>
+          <button class="btn" data-modal="export">${ICONS.package} Preview Customer Export</button>
+          <button class="btn">${ICONS.download} Traveler PDF</button>
+        </div>
+      </div>
+      <div class="content-body">
+        <div class="traveler-status">
+          <div class="status-step done"><div class="step-label">Step 1</div>Open</div>
+          <div class="status-step done"><div class="step-label">Step 2</div>In Process</div>
+          <div class="status-step current"><div class="step-label">Step 3a</div>Chart Review</div>
+          <div class="status-step"><div class="step-label">Step 3b</div>Inspection Review</div>
+          <div class="status-step"><div class="step-label">Step 3c</div>CoC Issuance</div>
+          <div class="status-step"><div class="step-label">Final</div>Released</div>
+        </div>
+
+        <div class="detail-grid">
+          <div class="detail-main">
+            <div class="card">
+              <div class="card-header"><div class="card-title">Part &amp; Recipe</div></div>
+              <div class="card-body">
+                <div class="info-grid">
+                  <div><div class="info-label">Part Master</div><div class="info-value mono">AD-1184-C · Rev 3</div></div>
+                  <div><div class="info-label">Material Lot</div><div class="info-value mono" style="color:var(--accent)" data-nav="traceability">4340-A-2026-018 ${ICONS.link}</div></div>
+                  <div><div class="info-label">Target Hardness</div><div class="info-value">38–42 HRC</div></div>
+                  <div><div class="info-label">Furnace</div><div class="info-value">Furnace #2 · FRN-02</div></div>
+                  <div><div class="info-label">Operator</div><div class="info-value">T. Wallace · Qualified ✓</div></div>
+                  <div><div class="info-label">Soak Set Point</div><div class="info-value">1550 °F · 90 min</div></div>
+                  <div><div class="info-label">Quench Medium</div><div class="info-value">Polymer · 25%</div></div>
+                  <div><div class="info-label">Customer Spec</div><div class="info-value" style="color:var(--accent)">AMS 2759/4</div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header"><div class="card-title">Hardness Inspection</div><button class="btn" style="margin-left:auto">${ICONS.plus} Add Reading</button></div>
+              <div class="card-body">
+                <div class="inspection-tolerance">
+                  <span style="color:var(--text-dim)">Tolerance</span>
+                  <span class="tolerance-range" style="color:var(--green)">38.0 – 42.0 HRC</span>
+                  <span style="color:var(--text-dim);margin-left:auto">5 readings · 1 out of tolerance</span>
+                </div>
+                <table class="data">
+                  <thead><tr><th style="width:30px"></th><th>#</th><th>Location</th><th>Reading</th><th>Technician</th></tr></thead>
+                  <tbody>
+                    <tr><td></td><td class="mono">1</td><td>Flange A</td><td class="mono" style="color:var(--green);font-weight:600">40.2 HRC</td><td>R. Chen</td></tr>
+                    <tr><td></td><td class="mono">2</td><td>Flange B</td><td class="mono" style="color:var(--green);font-weight:600">39.8 HRC</td><td>R. Chen</td></tr>
+                    <tr><td></td><td class="mono">3</td><td>Center Bore</td><td class="mono" style="color:var(--green);font-weight:600">41.1 HRC</td><td>R. Chen</td></tr>
+                    <tr class="row-locked lock-trigger" data-lock="job-held"><td><span class="row-icon" style="background:var(--red)"></span></td><td class="mono">4</td><td>Shoulder</td><td class="mono" style="color:var(--red);font-weight:700">36.4 HRC</td><td>R. Chen</td></tr>
+                    <tr><td></td><td class="mono">5</td><td>End Face</td><td class="mono" style="color:var(--green);font-weight:600">39.5 HRC</td><td>R. Chen</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header"><div class="card-title">QA Review Gates</div><div class="card-sub">3 discrete signatures required</div></div>
+              <div class="card-body">
+                <div class="sig-pending lock-trigger" data-lock="job-held">
+                  <div style="font-size:12px;color:var(--red);font-weight:600;margin-bottom:4px">${ICONS.lock} All three gates blocked — Job is on Hold</div>
+                  <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">An NCR is open against this job. Click anywhere to see the lock chain.</div>
+                  <button class="btn">View Lock Reason</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div>${renderHistoryPanel('job')}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ====== NCR (with concession panel for Use-As-Is) ======
+  function renderNCR() {
+    const dispositions = [
+      { id: 'scrap', label: 'Scrap', sub: 'Discard non-conforming material', requiresExtra: false },
+      { id: 'rework', label: 'Rework', sub: 'Re-temper & re-test', requiresExtra: false },
+      { id: 'useasis', label: 'Use As Is', sub: 'Customer concession required', requiresExtra: true },
+      { id: 'returnvendor', label: 'Return Vendor', sub: 'Material defect', requiresExtra: false }
+    ];
+
+    return `
+      <div class="content-header">
+        <div><div class="content-title">NCR-2026-0033</div><div class="content-subtitle">Against Job J-2026-0847 · Hardness out of tolerance · Major</div></div>
+        <div class="content-actions"><span class="badge red"><span class="dot"></span>Open · Investigation</span><button class="btn primary">Save Investigation</button></div>
+      </div>
+      <div class="content-body">
+        <div class="held-banner lock-trigger" data-lock="job-held">
+          <div class="held-lock">${ICONS.lock}</div>
+          <div style="flex:1">
+            <div style="font-weight:700;font-size:14px;color:var(--red);margin-bottom:3px">RED LIGHT — Job J-2026-0847 is on HOLD</div>
+            <div style="font-size:11px;color:var(--text-dim)">Final Release blocked. Click anywhere on this banner to see the full lock chain.</div>
+          </div>
+          <div style="font-size:11px;color:var(--red);font-weight:600">Tap to inspect ›</div>
+        </div>
+
+        <div class="detail-grid">
+          <div class="detail-main">
+            <div class="card">
+              <div class="card-header"><div class="card-title">Five Whys</div></div>
+              <div class="card-body">
+                <div class="whys-list">
+                  <div class="why-row"><div class="why-num">Why 1</div><textarea class="why-input filled">Shoulder location measured below minimum hardness specification.</textarea></div>
+                  <div class="why-row"><div class="why-num">Why 2</div><textarea class="why-input filled">Did not reach full austenitizing temperature during soak.</textarea></div>
+                  <div class="why-row"><div class="why-num">Why 3</div><textarea class="why-input filled">Heat distribution in Furnace #2 was uneven on the load.</textarea></div>
+                  <div class="why-row"><div class="why-num">Why 4</div><textarea class="why-input filled">Fixture orientation placed the shoulder near the door.</textarea></div>
+                  <div class="why-row"><div class="why-num">Why 5</div><textarea class="why-input" placeholder="Continue…"></textarea></div>
+                  <div class="why-row"><div class="why-num root">Root</div><textarea class="why-input" placeholder="Root cause"></textarea></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header"><div class="card-title">Disposition</div><div class="card-sub">Tap to select · "Use As Is" requires customer concession</div></div>
+              <div class="card-body">
+                <div class="disposition-row">
+                  ${dispositions.map(d => `
+                    <div class="disp-option ${ncrDisposition === d.id ? 'selected' : ''} ${d.requiresExtra ? 'requires-extra' : ''}" data-disposition="${d.id}">
+                      <div style="font-weight:600;margin-bottom:2px">${d.label}</div>
+                      <div style="font-size:10px;color:var(--text-dim)">${d.sub}</div>
+                    </div>
+                  `).join('')}
+                </div>
+
+                ${ncrDisposition === 'useasis' ? `
+                  <div class="concession-panel">
+                    <div class="concession-head">
+                      <div class="concession-icon">${ICONS.flag}</div>
+                      <div>
+                        <div class="concession-title">Customer Concession Required</div>
+                        <div class="concession-sub">"Use As Is" cannot be signed without a documented authorization from the customer.</div>
+                      </div>
+                      <span class="badge purple" style="margin-left:auto"><span class="dot"></span>Linked Record</span>
+                    </div>
+                    <div class="concession-body">
+                      <div class="concession-grid">
+                        <div class="concession-field">
+                          <label>Customer Representative</label>
+                          <input type="text" placeholder="e.g., J. Patterson · Aerolith Defense"/>
+                        </div>
+                        <div class="concession-field">
+                          <label>Concession #</label>
+                          <input type="text" placeholder="e.g., AD-CONC-2026-007" value="AD-CONC-2026-007"/>
+                        </div>
+                        <div class="concession-field">
+                          <label>Authorization Date</label>
+                          <input type="text" placeholder="YYYY-MM-DD" value="2026-03-08"/>
+                        </div>
+                        <div class="concession-field">
+                          <label>Expires</label>
+                          <input type="text" placeholder="One-time / YYYY-MM-DD" value="One-time (this lot only)"/>
+                        </div>
+                      </div>
+                      <div class="concession-field" style="margin-bottom:12px">
+                        <label>Scope of Concession</label>
+                        <textarea rows="2" placeholder="Specifically what the customer is accepting and any conditions…">Customer accepts material with shoulder hardness measured 36.4 HRC against spec 38–42 HRC, for Lot 4340-A-2026-018 only. Limited to current PO. Future deliveries must conform.</textarea>
+                      </div>
+                      <div class="concession-upload">
+                        <span style="font-size:14px;color:var(--purple)">${ICONS.signature}</span>
+                        <span><strong style="color:var(--text)">Upload signed authorization</strong> — PDF or scanned document from customer required (stored content-addressed in vault)</span>
+                        <button class="btn" style="margin-left:auto">Browse…</button>
+                      </div>
+                      <div style="margin-top:10px;font-size:10px;color:var(--text-faint);font-family:var(--mono);background:var(--surface-2);padding:6px 10px;border-radius:4px">
+                        Will create record: CONCESSION-2026-0007 · Linked to NCR-2026-0033, J-2026-0847, Lot 4340-A-2026-018 · Included in Customer Portal Export
+                      </div>
+                    </div>
+                  </div>
+                ` : ''}
+
+                <div class="divider"></div>
+                <div class="sig-pending">
+                  <div style="font-size:12px;color:var(--amber);font-weight:600;margin-bottom:4px">${ICONS.signature} Disposition Signature Required</div>
+                  <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px">
+                    ${ncrDisposition === 'useasis' ? 'Cannot sign until Customer Concession record is complete.' : 'A Quality Manager signature is required to lock in this disposition.'}
+                  </div>
+                  <button class="btn primary" ${ncrDisposition === 'useasis' ? 'disabled style="opacity:0.5;cursor:not-allowed"' : ''}>Sign as Quality Manager</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div>${renderHistoryPanel('ncr')}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ====== TRACEABILITY ======
+  function renderTraceability() {
+    return `
+      <div class="content-header"><div><div class="content-title">Material &amp; Lot Traceability</div><div class="content-subtitle">ISO 9001 §8.5.2</div></div></div>
+      <div class="content-body">
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-header"><div class="card-title">Lot 4340-A-2026-018</div><span class="badge green" style="margin-left:auto"><span class="dot"></span>Released</span></div>
+          <div class="card-body">
+            <div class="info-grid">
+              <div><div class="info-label">Material</div><div class="info-value">4340 Alloy Steel · 1.25" RB</div></div>
+              <div><div class="info-label">Heat Number</div><div class="info-value mono">H-AL-9921</div></div>
+              <div><div class="info-label">Supplier</div><div class="info-value">Alabama Steel Co.</div></div>
+              <div><div class="info-label">Mill Cert</div><div class="info-value" style="color:var(--accent)">MILL-2026-0188.pdf</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="dash-grid">
+          <div class="card">
+            <div class="card-header"><div class="card-title">${ICONS.trace} Forward Traceability</div></div>
+            <table class="data" style="border:none;border-radius:0">
+              <thead><tr><th>Job</th><th>Customer</th><th>CoC</th><th></th></tr></thead>
+              <tbody>
+                <tr><td class="mono" style="color:var(--accent)"><a data-nav="job">J-2026-0847</a></td><td>Aerolith Defense</td><td class="mono">Pending</td><td></td></tr>
+                <tr><td class="mono" style="color:var(--accent)">J-2026-0791</td><td>Aerolith Defense</td><td class="mono">CoC-2026-0489</td><td><button class="btn" data-modal="export" style="font-size:10px;padding:3px 8px">${ICONS.package} Export</button></td></tr>
+                <tr><td class="mono" style="color:var(--accent)">J-2026-0712</td><td>Magnolia Mfg</td><td class="mono">CoC-2026-0445</td><td><button class="btn" data-modal="export" style="font-size:10px;padding:3px 8px">${ICONS.package} Export</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="card">
+            <div class="card-header"><div class="card-title">⮌ Backward Traceability</div></div>
+            <div class="card-body" style="padding:0">
+              <div style="padding:14px 16px;border-bottom:1px solid var(--border)"><div style="font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;font-weight:600">Supplier</div><div style="font-size:13px;font-weight:600">Alabama Steel Co.</div></div>
+              <div style="padding:14px 16px;border-bottom:1px solid var(--border)"><div style="font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;font-weight:600">Mill Cert</div><div style="font-size:13px;font-weight:600" class="mono">MILL-2026-0188</div></div>
+              <div style="padding:14px 16px"><div style="font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:4px;font-weight:600">Receiving</div><div style="font-size:13px;font-weight:600">Accepted by T. Wallace · Jan 22, 2026</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ====== SUPPLIERS ======
+  function renderSuppliers() {
+    return `
+      <div class="content-header"><div><div class="content-title">Approved Suppliers</div><div class="content-subtitle">ISO 9001 §8.4</div></div></div>
+      <div class="content-body">
+        <div class="stat-grid">
+          <div class="stat-card"><div class="stat-label">Approved</div><div class="stat-value" style="color:var(--green)">12</div></div>
+          <div class="stat-card"><div class="stat-label">Conditional</div><div class="stat-value" style="color:var(--amber)">2</div></div>
+          <div class="stat-card"><div class="stat-label">Audit Overdue</div><div class="stat-value" style="color:var(--red)">1</div></div>
+          <div class="stat-card"><div class="stat-label">OTD</div><div class="stat-value">94.2%</div></div>
+        </div>
+        <div class="card">
+          <table class="data" style="border:none;border-radius:0">
+            <thead><tr><th>Supplier</th><th>Scope</th><th>Status</th><th>Last Audit</th><th>OTD</th><th>Open NCRs</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Alabama Steel Co.</strong></td><td>Raw Material</td><td><span class="badge green"><span class="dot"></span>Approved</span></td><td>Q4 2025</td><td>96.1%</td><td>0</td></tr>
+              <tr><td><strong>Pyrocal Inc.</strong></td><td>Calibration</td><td><span class="badge green"><span class="dot"></span>Approved</span></td><td>Q1 2026</td><td>100%</td><td>0</td></tr>
+              <tr><td><strong>Midwest Specialty Steel</strong></td><td>Tool steels</td><td><span class="badge green"><span class="dot"></span>Approved</span></td><td>Q2 2025</td><td>91.4%</td><td>0</td></tr>
+              <tr class="row-warn"><td><strong>Southside Forging</strong></td><td>Pre-form forging</td><td><span class="badge amber"><span class="dot"></span>Conditional</span></td><td>Q3 2025</td><td>87.2%</td><td>1</td></tr>
+              <tr class="row-locked"><td><strong>Coastal Metals Ltd.</strong></td><td>Specialty alloys</td><td><span class="badge red"><span class="dot"></span>Audit Overdue</span></td><td>Q1 2024</td><td>89.1%</td><td>2</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderHistoryPanel(ctx) {
+    const items = {
+      asset: [
+        { sig: false, action: 'Status changed to OOS on Load TC #1', meta: 'J. Hayes · Mar 8, 2026 09:14 UTC' },
+        { sig: true, action: 'Calibration Fail signed', meta: 'J. Hayes · Mar 8, 2026 09:12 UTC', hash: 'sha256: 9f4c…2a18' },
+        { sig: false, action: 'PM completed: Insulation survey', meta: 'J. Hayes · Jan 18, 2026 14:22 UTC' },
+        { sig: true, action: 'Hi-Limit functional test Pass signed', meta: 'K. Patel · Apr 12, 2025 11:30 UTC', hash: 'sha256: 71b8…ce04' }
+      ],
+      job: [
+        { sig: false, action: 'Job placed on HOLD by NCR-2026-0033', meta: 'System · Mar 8, 2026 08:52 UTC' },
+        { sig: false, action: 'Status → Chart Review', meta: 'T. Wallace · Mar 8, 2026 09:02 UTC' },
+        { sig: false, action: 'Inspection reading flagged OOT', meta: 'R. Chen · Mar 8, 2026 08:47 UTC' },
+        { sig: false, action: 'Chart imported &amp; hashed', meta: 'T. Wallace · Mar 8, 2026 07:14 UTC', hash: 'sha256: 7a3b…4f91' },
+        { sig: false, action: 'Material lot 4340-A-2026-018 linked', meta: 'T. Wallace · Mar 7, 2026 16:48 UTC' }
+      ],
+      ncr: [
+        { sig: false, action: 'Disposition selected: Rework', meta: 'M. Rodriguez · Mar 8, 2026 10:18 UTC' },
+        { sig: false, action: 'Five Whys updated (Why 4)', meta: 'M. Rodriguez · Mar 8, 2026 10:22 UTC' },
+        { sig: false, action: 'Job J-2026-0847 placed on HOLD', meta: 'System · Mar 8, 2026 08:52 UTC' },
+        { sig: false, action: 'NCR opened', meta: 'R. Chen · Mar 8, 2026 08:51 UTC' }
+      ]
+    }[ctx];
+
+    return `
+      <div class="history">
+        <div class="history-header"><span>⊟</span><span>Audit Trail</span><span style="margin-left:auto;font-size:10px;color:var(--text-faint);font-weight:400">Read-only</span></div>
+        <div class="history-list">
+          ${items.map(i => `
+            <div class="history-item ${i.sig ? 'signature' : ''}">
+              <div class="history-action">${i.sig ? '✎ ' : ''}${i.action}</div>
+              <div class="history-meta">${i.meta}</div>
+              ${i.hash ? `<div class="history-hash">${i.hash}</div>` : ''}
+            </div>`).join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  // ====== EVENT HANDLERS ======
+  let escHandler = null;
+
+  function attachHandlers() {
+    document.querySelectorAll('[data-nav]').forEach(el => {
+      el.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        currentView = el.dataset.nav;
+        pulseDrawerOpen = false;
+        lockInspectorId = null;
+        modalId = null;
+        render();
+      });
+    });
+
+    document.querySelectorAll('[data-toggle-pulse]').forEach(el => {
+      el.addEventListener('click', () => { pulseDrawerOpen = !pulseDrawerOpen; render(); });
+    });
+    document.querySelectorAll('[data-close-pulse]').forEach(el => {
+      el.addEventListener('click', () => { pulseDrawerOpen = false; render(); });
+    });
+    document.querySelectorAll('[data-drawer-tab]').forEach(el => {
+      el.addEventListener('click', () => { pulseDrawerTab = el.dataset.drawerTab; render(); });
+    });
+
+    document.querySelectorAll('.lock-trigger').forEach(el => {
+      el.addEventListener('click', e => {
+        if (e.target.closest('[data-nav]')) return;
+        if (e.target.closest('[data-modal]')) return;
+        if (e.target.tagName === 'BUTTON' && !e.target.classList.contains('btn')) return;
+        if (e.target.classList.contains('btn') && !el.contains(e.target.parentElement)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        lockInspectorId = el.dataset.lock;
+        render();
+      });
+    });
+    document.querySelectorAll('[data-close-inspector]').forEach(el => {
+      el.addEventListener('click', e => {
+        if (e.target === el || e.target.classList.contains('inspector-backdrop')) {
+          lockInspectorId = null; render();
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-modal]').forEach(el => {
+      el.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        modalId = el.dataset.modal;
+        render();
+      });
+    });
+    document.querySelectorAll('[data-close-modal]').forEach(el => {
+      el.addEventListener('click', e => {
+        if (e.target === el || e.target.classList.contains('modal-backdrop')) {
+          modalId = null; render();
+        }
+      });
+    });
+
+    document.querySelectorAll('[data-disposition]').forEach(opt => {
+      opt.addEventListener('click', () => {
+        ncrDisposition = opt.dataset.disposition;
+        render();
+      });
+    });
+
+    document.querySelectorAll('.rating-chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        const group = chip.parentElement;
+        group.querySelectorAll('.rating-chip').forEach(c => c.classList.remove('selected', 'conf', 'minor', 'major', 'obs'));
+        chip.classList.add('selected');
+        const txt = chip.textContent.toLowerCase();
+        if (txt.includes('conf')) chip.classList.add('conf');
+        else if (txt.includes('minor')) chip.classList.add('minor');
+        else if (txt.includes('major')) chip.classList.add('major');
+        else if (txt.includes('obs')) chip.classList.add('obs');
+      });
+    });
+
+    // Esc handler (proper cleanup so it doesn't accumulate)
+    if (escHandler) document.removeEventListener('keydown', escHandler);
+    escHandler = e => {
+      if (e.key !== 'Escape') return;
+      if (modalId) { modalId = null; render(); }
+      else if (lockInspectorId) { lockInspectorId = null; render(); }
+      else if (pulseDrawerOpen) { pulseDrawerOpen = false; render(); }
+    };
+    document.addEventListener('keydown', escHandler);
+  }
+
+  render();
+</script>
