@@ -5,8 +5,19 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!--
+      Services hosts cross-cutting abstractions (IClock, ICurrentUserAccessor,
+      ITemporalResolver, IAuditCorrelationProvider) that Data's interceptors
+      consume via DI. Services therefore sits BELOW Data in the project
+      dependency graph for Phase 1. The Data reference that the original
+      Phase 1 scaffold included was speculative — Services had no actual
+      Data consumers — and is removed here to break what would otherwise
+      be a circular dependency with the interceptor wiring in Chunk B.
+      Future application services that need DbContext will compose at the
+      host level (the WPF UI project), not via a direct Services -> Data
+      reference.
+    -->
     <ProjectReference Include="..\EasySynQ.Domain\EasySynQ.Domain.csproj" />
-    <ProjectReference Include="..\EasySynQ.Data\EasySynQ.Data.csproj" />
   </ItemGroup>
 
   <ItemGroup>

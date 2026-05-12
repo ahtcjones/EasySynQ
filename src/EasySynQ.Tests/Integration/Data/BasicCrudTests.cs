@@ -86,7 +86,12 @@ public class BasicCrudTests : IntegrationTestBase
 
         await using (var ctx = NewContext())
         {
-            var loaded = await ctx.UserRoles.SingleAsync(u => u.Id == id, Ct);
+            // The test period (2024-01-01 → 2024-12-31) is entirely in the
+            // past; the effective-dating filter (introduced in Chunk B with
+            // a "now"-anchored resolver in IntegrationTestBase) would hide
+            // it. IgnoreQueryFilters opts out — this test is about column
+            // round-trip, not filter behavior.
+            var loaded = await ctx.UserRoles.IgnoreQueryFilters().SingleAsync(u => u.Id == id, Ct);
             loaded.UserId.Should().Be(user.Id);
             loaded.RoleId.Should().Be(role.Id);
             loaded.EffectivePeriod.EffectiveFromUtc.Should().Be(period.EffectiveFromUtc);

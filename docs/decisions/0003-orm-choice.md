@@ -84,9 +84,23 @@ The repository interface (`IEasySynQRepository<T>` and friends) sits between the
 ## Implementation Notes
 
 - **Audit interceptor:** Implemented as `AuditSaveChangesInterceptor : ISaveChangesInterceptor`. Reads `ChangeTracker.Entries()` before SaveChanges, captures `OriginalValues` and `CurrentValues` as JSON via `System.Text.Json`, emits one `AuditLogEntry` per touched entity. For deletes, the captured snapshot is the `before`; for `HardDelete` (per ADR 0002), `after` is `null`.
-- **Effective-dating:** `TemporalResolver` is a scoped service. `DbContext` reads it during model-building filter setup. UI/Services set the resolver's `AsOf` to the event timestamp before opening a context for a historical query, defaulting to "now" otherwise.
+- **Effective-dating:** `TemporalResolver` is a scoped service. `DbContext` reads it during model-building filter setup. UI/Services set the resolver's `AsOf` to the event timestamp before opening a context for a historical query, defaulting to "now" otherwise. The mechanics of how the filter references the resolver live (rather than snapshotting at model build) are pinned by ADR 0005.
 - **Repository interface:** `IEasySynQRepository<T>` exposes `IQueryable<T>` for composition, but call sites are encouraged to use higher-level domain-specific repositories that return materialized DTOs.
 - **Tests:** Integration tests use a temp SQLite file (not in-memory provider — its semantics differ from real SQLite enough to be misleading for transaction tests).
+
+## Dependency Direction (resolved during Chunk B)
+
+The original Phase 1 scaffold had `EasySynQ.Services → EasySynQ.Data` (Services depending on Data — the conventional N-tier shape where "application services" use repositories). Chunk B placed the cross-cutting abstractions (`IClock`, `ICurrentUserAccessor`, `IAuditCorrelationProvider`, `ITemporalResolver`) in Services, and Data's interceptors need to consume them. Keeping both directions would have been a circular dependency.
+
+**Decision: inverted to `EasySynQ.Data → EasySynQ.Services`.** Services hosts the abstraction layer; Data is the infrastructure layer that consumes those abstractions to drive interceptor behavior.
+
+- **Data depends on Services** for the four abstraction interfaces above. Concrete implementations (`SystemClock`, `CurrentTimeTemporalResolver`) live in Services. Data's interceptors receive them via constructor injection.
+- **Services does NOT depend on Data.** Application-layer services that need a `DbContext` (Phase 2+) will compose at the UI/host level — the WPF startup wires `EasySynQDbContext` into the DI container alongside the services that consume it.
+- **Rationale:**
+  - This is consistent with how the abstractions are *used*: Data is the only layer that reads them today, and reading them is part of Data's job (stamping fields, writing audit rows, evaluating filters). Putting the abstractions in Services and the readers in Data keeps each project oriented toward its own concern.
+  - The reverse direction (Services → Data, abstractions in Data) would force every host that wants to register a clock or a user accessor to also pull in EF Core. That's wrong: the abstractions are useful well beyond the data layer (UI binding, business-rule evaluation, etc.).
+  - Application services that need a repository can be authored as a third layer composed at the host level. They never need a direct `Services → Data` reference at the project level.
+- **What this means for future packages:** if we later extract `EasySynQ.Abstractions` as its own project (when more layers need the cross-cutting interfaces), Services and Data both reference it and the layering becomes `Abstractions ← Services` and `Abstractions ← Data`. That's an option for a future refactor; for Phase 1, the inverted direction is sufficient.
 
 ## References
 

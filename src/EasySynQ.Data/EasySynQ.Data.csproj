@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\EasySynQ.Domain\EasySynQ.Domain.csproj" />
+    <ProjectReference Include="..\EasySynQ.Services\EasySynQ.Services.csproj" />
   </ItemGroup>
 
   <ItemGroup>
