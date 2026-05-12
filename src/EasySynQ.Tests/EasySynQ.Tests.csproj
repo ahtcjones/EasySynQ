@@ -5,6 +5,16 @@
     <UseWPF>true</UseWPF>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!--
+      Test-project analyzer suppressions.
+        CA1707 — "remove underscores from member name". Test method names use
+                 the Method_Scenario_ExpectedOutcome xUnit convention, which
+                 deliberately uses underscores for readability.
+        CA1806 — "constructor result not used". Tests that assert constructor
+                 throws use the `Action act = () => new X(...)` pattern, where
+                 the un-used instance creation IS the thing under assertion.
+    -->
+    <NoWarn>$(NoWarn);CA1707;CA1806</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

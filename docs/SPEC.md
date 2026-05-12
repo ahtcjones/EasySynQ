@@ -1,6 +1,6 @@
 # EasySynQ — Comprehensive Coding Project Prompt
 **A Quality Management System for ISO 9001:2015 Compliance**
-**Revision 3.1 · May 2026**
+**Revision 3.2 · May 2026**
 
 ---
 
@@ -12,6 +12,7 @@
 | 2 | May 2026 | Refined after UI prototyping. Repositioned around ISO 9001:2015 as the base product with industry-specific compliance as optional modules. Added five new core modules (Risk Register, Management Review, Competency Matrix, Material & Lot Traceability, Supplier Management). Refined Production Control's QA Review into three discrete signature gates. Added effective-dating for configuration values. Introduced content-addressed Document Vault, tiered snapshot retention, the "Why is this locked?" inspector, reverse-pulse tiles, print-friendly views, the Customer Portal Export, and an optional Local Service Mode topology. Deferred deep-link filter URLs to v2. |
 | 3 | May 2026 | Spec amendments after first review pass. Pinned hard-delete audit-log behavior — every hard delete writes a permanent `HardDelete` audit row with a full pre-delete snapshot (§3.5; see ADR 0002). Added a `RequiredSOPs` collection on Part Master as the single authoritative source for which controlled procedures apply to a job, with a compatibility-review cascade when an SOP revision is approved (§5.3, §5.9). Defined the valid evidence types for CAPA effectiveness verification (§5.4). Reserved the purple accent in the UI palette exclusively for cross-cutting linkage affordances — linked records, module surfaces, concession references — never for severity (§4.4). |
 | 3.1 | May 2026 | License-driven dependency swap. Replaced FluentAssertions in §2 with **AwesomeAssertions** (a community fork of FluentAssertions 7 maintained under MIT) after FluentAssertions 8.x shifted to a commercial license in early 2025. API-compatible; no test code changes implied. |
+| 3.2 | May 2026 | Clarified §3.7: `EffectiveFromUtc` may be in the future to support pre-scheduled configuration changes (e.g., a tolerance change that takes effect next Monday). The as-of resolver handles not-yet-active versions naturally; no new state required. |
 
 ---
 
@@ -143,6 +144,8 @@ Every configuration value that affects compliance evaluation must carry an `Effe
 **Historical records are evaluated against the configuration in effect at the time of the event, not the current configuration.**
 
 This is the difference between "did this job pass under the rules in effect when it was processed?" (the only auditor-defensible question) and "does this job pass against current rules?" (an unanswerable category error).
+
+`EffectiveFromUtc` is **permitted to be in the future**. Pre-scheduled configuration changes are a deliberate workflow — a Quality Manager may, for example, pre-create a tolerance change for a customer specification that takes effect next Monday, or pre-load an updated calibration interval that activates at the start of a new quarter. The as-of resolution handles this naturally: queries with an `asOf` timestamp earlier than a record's `EffectiveFromUtc` simply do not return the not-yet-active version. No `Scheduled` state or separate "draft configuration" entity is needed; the temporal axis is the only state required.
 
 Implement once, as a generic temporal value-object pattern. Every effective-dated entity has a clear version history visible in its detail screen.
 
