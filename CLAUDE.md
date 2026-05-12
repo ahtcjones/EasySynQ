@@ -106,6 +106,10 @@ Do not run a full phase end-to-end in one shot.
 - No new compiler warnings; no new linter violations
 - **Services consume repositories**, not `EasySynQDbContext` directly. Inject `IRepository<,>`, the entity-specific repository (e.g. `IUserRepository`, `IAuditLogRepository`), or `IUnitOfWork` for transactional work. Direct `DbContext` injection into service-layer code bypasses the audit interceptor's first line of defense (see ADR 0002).
 
+### Test stability verification
+
+Test stability is measured across runs, not a single observation. When reporting test results in session-handoff notes or PRs, run the suite at least 5 times and report the run-level pass rate, not just the final run's count. For changes touching test infrastructure (fixtures, base classes, parallelism, isolation), run the dedicated stress test (`scripts/stress-test.ps1`) and report the result.
+
 ---
 
 ## Definition of Done (per feature)

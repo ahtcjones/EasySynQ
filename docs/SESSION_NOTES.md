@@ -165,3 +165,68 @@ Working tree clean. Branch: `master`. Still no remote configured. Test count unc
 Unchanged from the entry above. Next chunk in dependency order is still **Auth service → Signature service → Snapshot service → Shell UI** with the login window threaded into the Shell UI work. ADR 0006 (Auth Specifics) is the next ADR to write.
 
 ---
+
+## 2026-05-12 (follow-up 2) — Test stability fix; metrics-drift correction
+
+### Correction to the prior handoff metrics
+
+The first 2026-05-12 entry above asserted "**146 tests, all passing**" as the suite's state. That number was based on a single `dotnet test` invocation and did not reflect actual stability under default parallel execution. When the next session ran the suite to confirm the handoff, it caught one failing test (`CorrelationIdTests.ExplicitCorrelationId_OverridesPerSaveDefaultAsync`). Investigation showed the failure was intermittent and not specific to that test.
+
+**Measured flake rate before the fix (30 full-suite runs at default parallelism):** 23/30 passed → **77% run-level pass rate**, with **6 different tests** observed failing at least once. Every failure shared the same root exception:
+
+```
+System.ObjectDisposedException : Cannot access a disposed object.
+Object name: 'SQLitePCL.sqlite3'.
+```
+
+The failing test in any given run was always a bystander — the bug was upstream, in the test scaffolding.
+
+### Root cause
+
+`TempSqliteDb.Delete()` called `SqliteConnection.ClearAllPools()`, which is **process-wide**. xUnit v3 parallelizes test classes within an assembly by default. When test A in class X was mid-`SaveChangesAsync` holding a pooled connection and test B in class Y finished, B's teardown call to `ClearAllPools()` tore down A's connection from under it. A then threw `ObjectDisposedException` on the next sqlite3 access. The flake was timing-dependent on which pair of tests happened to overlap.
+
+The original `ClearAllPools()` was added to fix a Windows file-lock race on `File.Delete()` after pool return. The fix worked for that symptom but introduced this race.
+
+### Fix
+
+Targeted pool flush keyed on this database's connection string:
+
+```csharp
+using (var conn = new SqliteConnection($"Data Source={path}"))
+{
+    SqliteConnection.ClearPool(conn);
+}
+```
+
+`ClearPool(connection)` is scoped to the supplied connection's pool — other tests' pools are untouched. Preserves the original Windows file-lock-release intent without the cross-test interference.
+
+### Verification
+
+30 full-suite runs at default parallelism after the fix:
+
+```
+Total runs:                  30
+Runs that fully passed:      30
+Runs with any failure:       0
+Run-level pass rate:         100%
+```
+
+The script lives at `scripts/stress-test.ps1` and is the canonical regression check for this class of bug going forward.
+
+### Process change
+
+The handoff template in `CLAUDE.md` (Working Style → "Test stability verification") now requires:
+
+> Test stability is measured across runs, not a single observation. When reporting test results in session-handoff notes or PRs, run the suite at least 5 times and report the run-level pass rate, not just the final run's count. For changes touching test infrastructure (fixtures, base classes, parallelism, isolation), run the dedicated stress test (`scripts/stress-test.ps1`) and report the result.
+
+This entry is the first observance of that rule. Future handoffs should not report a bare test count without a pass-rate observation behind it.
+
+### Working tree
+
+Single commit landed everything: the `TempSqliteDb` fix, `scripts/stress-test.ps1`, the `.gitignore` update for the transient output file, the `CLAUDE.md` rule, and this entry. Branch: `master`. No remote configured.
+
+### Forward plan
+
+Unchanged. Next chunk is still **Auth service → Signature service → Snapshot service → Shell UI**, with **ADR 0006 (Auth Specifics)** as the next ADR.
+
+---

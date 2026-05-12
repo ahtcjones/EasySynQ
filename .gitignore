@@ -98,3 +98,7 @@ notes.local.md
 # out of `git add .` and out of any future accidental commits.
 git-msg.tmp
 git-msg-*.tmp
+
+# Stress-test artifact. The script in scripts/stress-test.ps1 is source
+# (committed); its captured output is a transient run record, not source.
+/scripts/stress-test-output.txt
