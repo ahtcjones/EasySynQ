@@ -1,7 +1,3 @@
-// TODO (E2.5 / Chunk E5): register as singleton against both
-// IWritableCurrentUserAccessor and ICurrentUserAccessor. LoginWindow's
-// OnLoginSucceeded calls SetCurrentUser; SignOut (future) calls Clear.
-
 using EasySynQ.Domain.Entities.Identity;
 using EasySynQ.Services.Abstractions;
 using EasySynQ.Services.Identity;
