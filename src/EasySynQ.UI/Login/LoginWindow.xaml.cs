@@ -1,5 +1,4 @@
 using System.Windows;
-using System.Windows.Data;
 using System.Windows.Controls;
 
 namespace EasySynQ.UI.Login;
@@ -12,20 +11,35 @@ namespace EasySynQ.UI.Login;
 ///   <item>Wiring <see cref="PasswordBox.Password"/> through to the
 ///   command parameter on each keystroke (the only way around
 ///   <c>PasswordBox</c>'s non-bindable design).</item>
-///   <item>Translating the view model's <see cref="LoginViewModel.LoginSucceeded"/>
-///   and <see cref="LoginViewModel.BootstrapRequired"/> events into a
-///   window-close result.</item>
+///   <item>Translating the view model's
+///   <see cref="LoginViewModel.BootstrapRequired"/> event into a
+///   placeholder dialog and window close.</item>
 ///   <item>Setting initial keyboard focus to the username field on load
 ///   and unsubscribing on close.</item>
 /// </list>
+/// The <see cref="LoginViewModel.LoginSucceeded"/> event is NOT
+/// subscribed here — <see cref="App"/> owns the post-success transition
+/// (populate the current-user accessor, resolve and show MainWindow,
+/// then close this window). Two reasons: the close ordering matters
+/// (MainWindow must open before this Window closes, otherwise default
+/// <c>ShutdownMode.OnLastWindowClose</c> triggers app shutdown during
+/// the zero-window gap), and centralizing the success-flow ownership
+/// in the host makes the lifecycle easier to reason about than
+/// splitting it across two files.
 /// </summary>
 public partial class LoginWindow : Window
 {
-    private readonly LoginViewModel _viewModel;
+    /// <summary>
+    /// View model the window binds against. Exposed publicly so the
+    /// host (<see cref="App"/>) can subscribe to
+    /// <see cref="LoginViewModel.LoginSucceeded"/> without going
+    /// through the loosely-typed <see cref="FrameworkElement.DataContext"/>.
+    /// </summary>
+    public LoginViewModel ViewModel { get; }
 
     /// <summary>
-    /// Constructs the window over its view model. The view model is also
-    /// the <see cref="FrameworkElement.DataContext"/>.
+    /// Constructs the window over its view model. The view model is
+    /// also assigned to <see cref="FrameworkElement.DataContext"/>.
     /// </summary>
     /// <param name="viewModel">View model. Must not be <see langword="null"/>.</param>
     /// <exception cref="ArgumentNullException">Thrown when
@@ -33,12 +47,11 @@ public partial class LoginWindow : Window
     public LoginWindow(LoginViewModel viewModel)
     {
         ArgumentNullException.ThrowIfNull(viewModel);
-        _viewModel = viewModel;
+        ViewModel = viewModel;
         DataContext = viewModel;
         InitializeComponent();
 
-        _viewModel.LoginSucceeded += OnLoginSucceeded;
-        _viewModel.BootstrapRequired += OnBootstrapRequired;
+        ViewModel.BootstrapRequired += OnBootstrapRequired;
         Loaded += OnLoaded;
     }
 
@@ -58,32 +71,28 @@ public partial class LoginWindow : Window
             .UpdateTarget();
     }
 
-    private void OnLoginSucceeded(object? sender, AuthenticatedUserEventArgs e)
-    {
-        DialogResult = true;
-        Close();
-    }
-
     private void OnBootstrapRequired(object? sender, EventArgs e)
     {
         // TODO Phase 1 follow-up: route to a real first-run bootstrap
         // window once that flow is designed. Placeholder dialog here
         // exists only so a fresh install does not silently dead-end.
+        // Window is shown via Show() (not ShowDialog()), so setting
+        // DialogResult would throw — just Close() and let default
+        // ShutdownMode.OnLastWindowClose exit the app since no other
+        // window is open at this point.
         MessageBox.Show(
             this,
             "First-run setup is not yet implemented in this build. Contact your administrator.",
             "Setup Required",
             MessageBoxButton.OK,
             MessageBoxImage.Information);
-        DialogResult = false;
         Close();
     }
 
     /// <inheritdoc />
     protected override void OnClosed(EventArgs e)
     {
-        _viewModel.LoginSucceeded -= OnLoginSucceeded;
-        _viewModel.BootstrapRequired -= OnBootstrapRequired;
+        ViewModel.BootstrapRequired -= OnBootstrapRequired;
         Loaded -= OnLoaded;
         base.OnClosed(e);
     }

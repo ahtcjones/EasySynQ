@@ -49,11 +49,20 @@ namespace EasySynQ.UI;
 /// window in any build. No Console sink — WPF has no console.
 /// </para>
 /// <para>
-/// <b>Still to land in Chunk E5.</b> E5.4 swaps <c>LoginWindow</c> in
-/// as the entry point and drives the login → shell flow. E5.5 adds the
-/// EF Core migration check on startup, ordered last so a failed
-/// migration can log via the now-real logger and surface via the
-/// now-installed global handler.
+/// <b>Chunk E5.4.</b> <see cref="LoginWindow"/> is the entry point;
+/// <see cref="MainWindow"/> is resolved lazily on successful sign-in.
+/// The post-success handler populates
+/// <see cref="IWritableCurrentUserAccessor"/> with the authenticated
+/// user, logs the transition, opens MainWindow, then closes
+/// LoginWindow — in that order, so default
+/// <c>ShutdownMode.OnLastWindowClose</c> does not trigger app
+/// shutdown during the zero-window gap.
+/// </para>
+/// <para>
+/// <b>Still to land in Chunk E5.</b> E5.5 adds the EF Core migration
+/// check on startup, ordered last so a failed migration can log via
+/// the now-real logger and surface via the now-installed global
+/// handler.
 /// </para>
 /// </remarks>
 public partial class App : Application
@@ -87,8 +96,7 @@ public partial class App : Application
 
         ConfigureExceptionHandlers(_host);
 
-        var mainWindow = _host.Services.GetRequiredService<MainWindow>();
-        mainWindow.Show();
+        ConfigureLoginFlow(_host);
     }
 
     /// <inheritdoc />
@@ -435,4 +443,92 @@ public partial class App : Application
         Level = LogLevel.Error,
         Message = "Unobserved task exception")]
     private static partial void LogUnobservedTaskException(ILogger<App> logger, AggregateException exception);
+
+    /// <summary>
+    /// Resolves <see cref="LoginWindow"/> from the host, subscribes
+    /// the host-side <see cref="LoginViewModel.LoginSucceeded"/>
+    /// handler, and shows the window. This is the only entry-point
+    /// path — MainWindow is not resolved here; it is resolved lazily
+    /// inside <see cref="OnLoginSucceeded"/> after the user
+    /// authenticates.
+    /// </summary>
+    /// <remarks>
+    /// The dependencies (<see cref="IWritableCurrentUserAccessor"/>
+    /// and <see cref="ILogger{App}"/>) are captured at wiring time so
+    /// the handler does not pay a DI resolve cost when the event
+    /// fires. The captured <see cref="IHost"/> is needed for the lazy
+    /// <see cref="MainWindow"/> resolve.
+    /// </remarks>
+    /// <param name="host">The host providing the login surface and
+    /// its dependencies.</param>
+    private static void ConfigureLoginFlow(IHost host)
+    {
+        var loginWindow = host.Services.GetRequiredService<LoginWindow>();
+        var accessor = host.Services.GetRequiredService<IWritableCurrentUserAccessor>();
+        var logger = host.Services.GetRequiredService<ILogger<App>>();
+
+        loginWindow.ViewModel.LoginSucceeded += (_, args) =>
+            OnLoginSucceeded(host, loginWindow, accessor, logger, args);
+
+        loginWindow.Show();
+    }
+
+    /// <summary>
+    /// Post-authentication transition. Populates the current-user
+    /// accessor, logs the sign-in success, resolves and shows
+    /// <see cref="MainWindow"/>, then closes
+    /// <paramref name="loginWindow"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Order matters.</b>
+    /// </para>
+    /// <list type="number">
+    /// <item><c>SetCurrentUser</c> first so any binding evaluated
+    /// during MainWindow construction or Show — including
+    /// MainShellViewModel's user-chip bindings — observes a populated
+    /// identity rather than the empty default.</item>
+    /// <item><c>MainWindow.Show()</c> before <c>LoginWindow.Close()</c>
+    /// so the app is never in a zero-windows state. Default
+    /// <c>ShutdownMode.OnLastWindowClose</c> would initiate shutdown
+    /// in that gap and race the pending MainWindow show.</item>
+    /// </list>
+    /// <para>
+    /// <b>Role-name placeholder.</b> The literal <c>"Authenticated User"</c>
+    /// string is a deliberate placeholder until the real role-resolution
+    /// design lands (Phase 1 Follow-Up: plumb the authenticated user's
+    /// effective role through <see cref="AuthenticationResult.Success"/>
+    /// and <c>AuthenticatedUserEventArgs</c>; ADR 0006 amendment
+    /// required to define semantics — single role / primary role /
+    /// selected-at-login). Grep for the literal string to find both
+    /// this call site and the future replacement point.
+    /// </para>
+    /// </remarks>
+    private static void OnLoginSucceeded(
+        IHost host,
+        LoginWindow loginWindow,
+        IWritableCurrentUserAccessor accessor,
+        ILogger<App> logger,
+        AuthenticatedUserEventArgs args)
+    {
+        accessor.SetCurrentUser(args.User, "Authenticated User");
+        LogSignInSucceeded(logger, args.User.Username);
+
+        var mainWindow = host.Services.GetRequiredService<MainWindow>();
+        mainWindow.Show();
+        loginWindow.Close();
+    }
+
+    /// <summary>
+    /// Source-generated emit for the successful-sign-in entry-point
+    /// transition. Fires once per app session (until sign-out / re-login
+    /// flows arrive). The matching failure emit is
+    /// <see cref="LoginViewModel"/>'s <c>LogSignInSystemError</c>
+    /// (EventId 1001).
+    /// </summary>
+    [LoggerMessage(
+        EventId = 6001,
+        Level = LogLevel.Information,
+        Message = "User {Username} signed in successfully.")]
+    private static partial void LogSignInSucceeded(ILogger<App> logger, string username);
 }
