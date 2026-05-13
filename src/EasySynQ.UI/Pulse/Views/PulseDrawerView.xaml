@@ -18,10 +18,15 @@
             (TranslateTransform.X=420) and slides in to X=0 on
             IsOpen → True. Matches the prototype's
             "transform: translateX 0.25s ease-out".
+
+            Targets the transform via property path
+            (UIElement.RenderTransform → TranslateTransform.X) rather
+            than by Storyboard.TargetName: WPF disallows TargetName when
+            the Storyboard lives inside a Style, because the Style's
+            namescope cannot resolve names from the host element tree.
         -->
         <Storyboard x:Key="SlideIn">
-            <DoubleAnimation Storyboard.TargetName="SlideTransform"
-                             Storyboard.TargetProperty="X"
+            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)"
                              To="0" Duration="0:0:0.25">
                 <DoubleAnimation.EasingFunction>
                     <CubicEase EasingMode="EaseOut" />
@@ -29,8 +34,7 @@
             </DoubleAnimation>
         </Storyboard>
         <Storyboard x:Key="SlideOut">
-            <DoubleAnimation Storyboard.TargetName="SlideTransform"
-                             Storyboard.TargetProperty="X"
+            <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)"
                              To="420" Duration="0:0:0.25">
                 <DoubleAnimation.EasingFunction>
                     <CubicEase EasingMode="EaseOut" />
