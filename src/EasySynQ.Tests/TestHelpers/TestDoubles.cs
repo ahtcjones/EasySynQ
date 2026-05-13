@@ -33,6 +33,9 @@ public sealed class MutableCurrentUserAccessor : ICurrentUserAccessor
 
     /// <inheritdoc cref="ICurrentUserAccessor.UserDisplayName"/>
     public string UserDisplayName { get; set; } = string.Empty;
+
+    /// <inheritdoc cref="ICurrentUserAccessor.CurrentRoleName"/>
+    public string CurrentRoleName { get; set; } = string.Empty;
 }
 
 /// <summary>

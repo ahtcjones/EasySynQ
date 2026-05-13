@@ -58,6 +58,10 @@ public class Repository<TEntity, TId> : IRepository<TEntity, TId>
     }
 
     /// <inheritdoc />
+    public virtual Task<bool> AnyAsync(CancellationToken cancellationToken)
+        => Context.Set<TEntity>().AnyAsync(cancellationToken);
+
+    /// <inheritdoc />
     public virtual IQueryable<TEntity> Query() => Context.Set<TEntity>();
 
     /// <inheritdoc />

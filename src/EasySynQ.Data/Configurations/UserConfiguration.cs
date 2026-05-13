@@ -17,7 +17,7 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
 
         builder.Property(u => u.DisplayName).IsRequired().HasMaxLength(128);
 
-        // PBKDF2 hash + salt are stored as opaque strings (encoding pinned by ADR 0004).
+        // PBKDF2 hash + salt are stored as opaque strings (encoding pinned by ADR 0006).
         // Hash length is generous (256) to allow any base64-encoded output up to 192 bytes.
         builder.Property(u => u.PasswordHash).IsRequired().HasMaxLength(256);
         builder.Property(u => u.PasswordSalt).IsRequired().HasMaxLength(64);
@@ -26,6 +26,11 @@ internal sealed class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.MustChangePassword).IsRequired();
         builder.Property(u => u.LastLoginUtc);
         builder.Property(u => u.IsDisabled).IsRequired();
+
+        // Lockout state (ADR 0006). FailedLoginCount defaults to 0;
+        // LockedUntilUtc is nullable — null means "not currently locked."
+        builder.Property(u => u.FailedLoginCount).IsRequired().HasDefaultValue(0);
+        builder.Property(u => u.LockedUntilUtc);
 
         builder.ConfigureAuditableEntityFields();
     }

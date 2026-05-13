@@ -53,6 +53,16 @@ public interface IRepository<TEntity, TId>
     Task<TEntity?> GetByIdIncludingDeletedAsync(TId id, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Returns <see langword="true"/> when at least one non-soft-deleted
+    /// row exists for this entity. Provided as a first-class repository
+    /// method so service-layer callers don't have to reach for EF Core's
+    /// <c>AnyAsync</c> extension on <see cref="Query"/> — the Services
+    /// project does not reference <c>Microsoft.EntityFrameworkCore</c>
+    /// (per ADR 0003's dependency direction).
+    /// </summary>
+    Task<bool> AnyAsync(CancellationToken cancellationToken);
+
+    /// <summary>
     /// Returns a composable query surface for this entity. The query
     /// honors the soft-delete filter and any global query filters
     /// configured on the entity. Callers extend it with LINQ operators.

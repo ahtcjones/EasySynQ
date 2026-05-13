@@ -26,4 +26,13 @@ public interface ICurrentUserAccessor
     /// authenticated.
     /// </summary>
     string UserDisplayName { get; }
+
+    /// <summary>
+    /// Canonical name of the role the current user is acting under, or
+    /// empty string when no user is authenticated. Read by the signature
+    /// service to capture <c>RoleAtTimeOfSign</c> as a string snapshot —
+    /// the snapshot is taken at the moment of signing because role
+    /// assignments are effective-dated and may change after signing.
+    /// </summary>
+    string CurrentRoleName { get; }
 }

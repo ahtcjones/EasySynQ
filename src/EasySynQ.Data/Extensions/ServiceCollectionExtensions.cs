@@ -2,6 +2,8 @@ using EasySynQ.Data.Context;
 using EasySynQ.Data.Interceptors;
 using EasySynQ.Data.Repositories;
 using EasySynQ.Services.Abstractions;
+using EasySynQ.Services.Identity;
+using EasySynQ.Services.Signatures;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -71,6 +73,18 @@ public static class ServiceCollectionExtensions
 
         // Unit of work for explicit cross-save transactions.
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+
+        // Identity & signature services (Chunk D / ADR 0006).
+        // Policy as a singleton: thread-safe immutable values.
+        // Hasher as a singleton: stateless beyond the policy.
+        // AuthenticationService as scoped: holds the per-instance dummy
+        // hash cache and is composed with scoped repositories.
+        // SignatureService as scoped: composes with scoped repositories
+        // and the scoped current-user accessor.
+        services.AddSingleton<IPasswordPolicy, PasswordPolicy>();
+        services.AddSingleton<IPasswordHasher, PasswordHasher>();
+        services.AddScoped<IAuthenticationService, AuthenticationService>();
+        services.AddScoped<ISignatureService, SignatureService>();
 
         return services;
     }
