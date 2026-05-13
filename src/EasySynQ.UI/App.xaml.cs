@@ -1,3 +1,6 @@
+using System.Globalization;
+using System.IO;
+using System.Reflection;
 using System.Windows;
 
 using EasySynQ.Services.Abstractions;
@@ -10,31 +13,38 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
+using Serilog;
+using Serilog.Events;
+
 namespace EasySynQ.UI;
 
 /// <summary>
-/// Application entry point. Owns the WPF startup sequence and the
-/// Microsoft.Extensions.Hosting service-provider lifecycle.
+/// Application entry point. Owns the WPF startup sequence, the Serilog
+/// logging pipeline, and the Microsoft.Extensions.Hosting
+/// service-provider lifecycle.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Chunk E5.1.</b> The shell's dependency graph is constructed
-/// through a <see cref="HostApplicationBuilder"/> rather than by hand in
-/// <see cref="OnStartup"/>. The three seams the prior code concentrated
-/// in this method (a <see cref="MockPulseSource"/> and two
-/// <c>NullLogger&lt;T&gt;</c> placeholders) are now DI registrations:
-/// the mock pulse source as <see cref="IPulseSource"/>, and the loggers
-/// via the host's own
-/// <see cref="HostApplicationBuilder.Logging"/> pipeline with all
-/// providers cleared — so resolved <c>ILogger&lt;T&gt;</c> instances are
-/// behaviorally no-op, matching the <c>NullLogger&lt;T&gt;.Instance</c>
-/// behavior the prior hand-built graph relied on.
+/// <b>Chunk E5.2.</b> Serilog is the sole logging provider. The static
+/// <see cref="Log.Logger"/> is configured first (so bootstrap and
+/// shutdown lines can be emitted before / after the host's lifecycle),
+/// then wired into the host via
+/// <see cref="LoggingBuilderExtensions.ClearProviders"/> +
+/// <c>AddSerilog(dispose: true)</c> so every <see cref="ILogger{T}"/>
+/// resolution in DI routes through the same configured sink set.
 /// </para>
 /// <para>
-/// <b>Still to land in Chunk E5.</b> E5.2 wires the Serilog provider
-/// inside <see cref="OnStartup"/>. E5.3 installs a global
+/// <b>Sink set.</b> A daily-rolling file sink writes to
+/// <c>%LOCALAPPDATA%\EasySynQ\logs\easysynq-{yyyyMMdd}.log</c>; the
+/// directory is created on startup since the File sink does not create
+/// parents. The Debug sink mirrors output to the Visual Studio Output
+/// window in any build. No Console sink — WPF has no console.
+/// </para>
+/// <para>
+/// <b>Still to land in Chunk E5.</b> E5.3 installs a global
 /// unhandled-exception handler. E5.4 swaps <c>LoginWindow</c> in as the
-/// entry point and drives the login → shell flow.
+/// entry point and drives the login → shell flow. E5.5 adds the EF Core
+/// migration check on startup.
 /// </para>
 /// </remarks>
 public partial class App : Application
@@ -46,15 +56,21 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        ConfigureSerilog();
+
+        Log.Information(
+            "EasySynQ starting (assembly {AssemblyVersion})",
+            Assembly.GetExecutingAssembly().GetName().Version);
+
         var builder = Host.CreateApplicationBuilder(e.Args);
 
-        // Drop the framework's default logging providers (Console,
-        // Debug, EventSource, EventLog) so resolved ILogger<T> instances
-        // produce no output — preserves the NullLogger<T>.Instance
-        // semantics the prior hand-built graph relied on. E5.2
-        // reintroduces a single provider (Serilog) inside this same
-        // builder, with no other change to the dependency graph.
+        // Drop the framework's default providers (Console, Debug,
+        // EventSource, EventLog) and route the host's logger factory
+        // through Serilog instead. dispose: true ties the Serilog
+        // pipeline's disposal to the host's logger-factory disposal,
+        // which fires inside _host.Dispose() in OnExit.
         builder.Logging.ClearProviders();
+        builder.Logging.AddSerilog(dispose: true);
 
         ConfigureServices(builder.Services);
         _host = builder.Build();
@@ -67,13 +83,57 @@ public partial class App : Application
     /// <inheritdoc />
     protected override void OnExit(ExitEventArgs e)
     {
+        // Emit the shutdown line BEFORE disposing the host. The host's
+        // logger factory carries Serilog with dispose: true, so
+        // _host.Dispose() flushes and closes the Serilog pipeline; any
+        // Log.* call after that point is a no-op.
+        Log.Information("EasySynQ shutting down");
+
         if (_host is not null)
         {
             _host.StopAsync().GetAwaiter().GetResult();
             _host.Dispose();
             _host = null;
         }
+
+        // Defensive — the AddSerilog(dispose: true) above already
+        // flushed the pipeline. Belt and braces for the case where
+        // OnStartup threw before the host was built (Log.Logger is set,
+        // _host is null) and OnExit still fires.
+        Log.CloseAndFlush();
+
         base.OnExit(e);
+    }
+
+    /// <summary>
+    /// Configures the static <see cref="Log.Logger"/> with the file +
+    /// debug sink set and the global level overrides. Called once at
+    /// startup, before the host is built.
+    /// </summary>
+    private static void ConfigureSerilog()
+    {
+        var logDir = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "EasySynQ",
+            "logs");
+
+        // Serilog's File sink does not create parent directories.
+        // CreateDirectory is idempotent if the path already exists.
+        Directory.CreateDirectory(logDir);
+
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Information()
+            .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
+            .MinimumLevel.Override("System", LogEventLevel.Warning)
+            .Enrich.FromLogContext()
+            .WriteTo.Debug(formatProvider: CultureInfo.InvariantCulture)
+            .WriteTo.File(
+                path: Path.Combine(logDir, "easysynq-.log"),
+                rollingInterval: RollingInterval.Day,
+                formatProvider: CultureInfo.InvariantCulture,
+                outputTemplate:
+                    "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
+            .CreateLogger();
     }
 
     /// <summary>
