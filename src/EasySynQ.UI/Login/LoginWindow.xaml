@@ -44,7 +44,10 @@
                     Brand mark. Square plate with the accent→purple diagonal
                     gradient. CSS reference: linear-gradient(135deg, accent,
                     purple). WPF's StartPoint=(0,0)/EndPoint=(1,1) produces
-                    the same top-left → bottom-right direction.
+                    the same top-left → bottom-right direction. Wordmark is
+                    "EQ" to match the prototype's topbar brand-mark glyph;
+                    FontSize=20 (down from 22) gives "EQ" room to breathe
+                    inside the 56×56 plate without losing weight.
                 -->
                 <Border Width="56"
                         Height="56"
@@ -57,9 +60,9 @@
                             <GradientStop Color="{StaticResource ColorPurple}" Offset="1" />
                         </LinearGradientBrush>
                     </Border.Background>
-                    <TextBlock Text="Q"
+                    <TextBlock Text="EQ"
                                FontFamily="{StaticResource FontFamilyBody}"
-                               FontSize="22"
+                               FontSize="20"
                                FontWeight="ExtraBold"
                                Foreground="White"
                                HorizontalAlignment="Center"

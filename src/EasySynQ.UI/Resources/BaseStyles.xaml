@@ -206,4 +206,17 @@
         </Style.Triggers>
     </Style>
 
+    <!-- ButtonGhost: transparent at rest, default hover/pressed/disabled.
+         Matches the prototype's .btn.ghost rule (transparent background,
+         standard border color). BasedOn the implicit Button style means the
+         base style's Style.Triggers (IsMouseOver → BrushSurface3,
+         IsPressed → BrushSurface, IsEnabled=false → dim) flow through
+         unchanged — Style triggers from the base style inherit alongside
+         its setters, and trigger setters override at runtime regardless of
+         the derived style's resting setter. No trigger overrides needed;
+         verified by inspection of the base style's structure above. -->
+    <Style x:Key="ButtonGhost" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+        <Setter Property="Background" Value="Transparent" />
+    </Style>
+
 </ResourceDictionary>

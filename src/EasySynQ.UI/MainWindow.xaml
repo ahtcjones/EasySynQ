@@ -1,12 +1,462 @@
-﻿<Window x:Class="EasySynQ.UI.MainWindow"
+<Window x:Class="EasySynQ.UI.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:EasySynQ.UI"
+        xmlns:nav="clr-namespace:EasySynQ.UI.Navigation"
+        xmlns:pulseviews="clr-namespace:EasySynQ.UI.Pulse.Views"
+        xmlns:placeholders="clr-namespace:EasySynQ.UI.Placeholders"
         mc:Ignorable="d"
-        Title="MainWindow" Height="450" Width="800">
+        Title="EasySynQ — Quality Management System"
+        Width="1400"
+        Height="900"
+        MinWidth="1100"
+        MinHeight="700"
+        WindowStartupLocation="CenterScreen"
+        WindowState="Normal"
+        WindowStyle="SingleBorderWindow"
+        d:DataContext="{d:DesignInstance Type=nav:MainShellViewModel, IsDesignTimeCreatable=False}">
+
+    <Window.Resources>
+        <!--
+            Grouped view over MainShellViewModel.Items. The Source is set in
+            code-behind after InitializeComponent because Bindings inside a
+            ResourceDictionary don't resolve a DataContext naturally — the
+            constructor assigns Source once the resources dictionary exists
+            and the view model is in hand.
+        -->
+        <CollectionViewSource x:Key="NavView">
+            <CollectionViewSource.GroupDescriptions>
+                <PropertyGroupDescription PropertyName="Section" />
+            </CollectionViewSource.GroupDescriptions>
+        </CollectionViewSource>
+
+        <!--
+            Content-area DataTemplates. The ContentControl in the body
+            looks these up implicitly by DataType, swapping its rendered
+            view as MainShellViewModel.CurrentContent changes. New module
+            view models register their templates here (or move the whole
+            block to App.xaml when they grow numerous and need
+            cross-window reuse).
+        -->
+        <DataTemplate DataType="{x:Type placeholders:PulseDashboardViewModel}">
+            <placeholders:PulseDashboardView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type placeholders:ComingSoonViewModel}">
+            <placeholders:ComingSoonView />
+        </DataTemplate>
+    </Window.Resources>
+
+    <!--
+        Root overlay container. Z-order is declaration order — later
+        children render on top. The shell (topbar + body) sits at the
+        base; the Pulse backdrop overlays it when the drawer is open;
+        the drawer itself slides in over the backdrop.
+    -->
     <Grid>
 
+        <!-- Layer 1: shell content (topbar fixed 56 px + body). -->
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="56" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+        <!-- ============== TOPBAR ============== -->
+        <Border Grid.Row="0"
+                Background="{StaticResource BrushSurface}"
+                BorderBrush="{StaticResource BrushBorder}"
+                BorderThickness="0,0,0,1"
+                Padding="20,0,20,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />  <!-- 0: brand block -->
+                    <ColumnDefinition Width="Auto" />  <!-- 1: brand suffix -->
+                    <ColumnDefinition Width="Auto" />  <!-- 2: module chip -->
+                    <ColumnDefinition Width="Auto" />  <!-- 3: breadcrumb separator -->
+                    <ColumnDefinition Width="*" />     <!-- 4: breadcrumb (fill) -->
+                    <ColumnDefinition Width="Auto" />  <!-- 5: pulse button -->
+                    <ColumnDefinition Width="Auto" />  <!-- 6: search -->
+                    <ColumnDefinition Width="Auto" />  <!-- 7: user chip -->
+                </Grid.ColumnDefinitions>
+
+                <!-- (0) Brand block: gradient plate + wordmark -->
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,16,0">
+                    <Border Width="28" Height="28" CornerRadius="7">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                <GradientStop Color="{StaticResource ColorAccent}" Offset="0" />
+                                <GradientStop Color="{StaticResource ColorPurple}" Offset="1" />
+                            </LinearGradientBrush>
+                        </Border.Background>
+                        <TextBlock Text="EQ"
+                                   FontFamily="{StaticResource FontFamilyBody}"
+                                   FontSize="13"
+                                   FontWeight="ExtraBold"
+                                   Foreground="White"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock Text="EasySynQ"
+                               FontWeight="Bold"
+                               FontSize="15"
+                               Foreground="{StaticResource BrushText}"
+                               Margin="10,0,0,0"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+
+                <!-- (1) Brand suffix.
+                     TODO Phase 1 follow-up — replace with config-bearing tenant
+                     string; hardcoded here for the pilot. -->
+                <TextBlock Grid.Column="1"
+                           Text="/ Anniston Heat Treat"
+                           FontWeight="Medium"
+                           FontSize="12"
+                           Foreground="{StaticResource BrushTextDim}"
+                           VerticalAlignment="Center"
+                           Margin="0,0,16,0" />
+
+                <!-- (2) Module chip — non-interactive placeholder.
+                     TODO SPEC §12 — when modules ship, add hover affordance,
+                     dropdown trigger, "· +N available" suffix. -->
+                <Border Grid.Column="2"
+                        CornerRadius="14"
+                        Padding="4,4,10,4"
+                        Background="{StaticResource BrushSurface2}"
+                        BorderBrush="{StaticResource BrushBorder}"
+                        BorderThickness="1"
+                        VerticalAlignment="Center"
+                        Margin="0,0,16,0"
+                        ToolTip="Optional compliance modules — coming in a future release.">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Ellipse Width="6" Height="6"
+                                 Fill="{StaticResource BrushGreen}"
+                                 Margin="4,0,6,0"
+                                 VerticalAlignment="Center" />
+                        <TextBlock Text="ISO 9001:2015"
+                                   FontSize="11"
+                                   Foreground="{StaticResource BrushTextDim}"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+
+                <!-- (3) Breadcrumb separator — visible only when there's a section to render. -->
+                <TextBlock Grid.Column="3"
+                           Text="/"
+                           FontSize="12"
+                           Foreground="{StaticResource BrushTextFaint}"
+                           VerticalAlignment="Center"
+                           Margin="0,0,8,0"
+                           Visibility="{Binding CurrentSectionLabel, Converter={StaticResource NullOrEmptyToVisibility}}" />
+
+                <!-- (4) Breadcrumb label — grows to fill remaining space. -->
+                <TextBlock Grid.Column="4"
+                           Text="{Binding CurrentSectionLabel}"
+                           FontSize="12"
+                           Foreground="{StaticResource BrushText}"
+                           VerticalAlignment="Center"
+                           Visibility="{Binding CurrentSectionLabel, Converter={StaticResource NullOrEmptyToVisibility}}" />
+
+                <!-- (5) Pulse button.
+                     TODO Phase 11 polish — pulse-glow animation on the red dot
+                     (prototype @keyframes pulse-glow). Static for now. -->
+                <Button Grid.Column="5"
+                        Style="{StaticResource ButtonGhost}"
+                        Command="{Binding PulseDrawerViewModel.ToggleDrawerCommand}"
+                        Padding="12,6,12,6"
+                        VerticalAlignment="Center"
+                        Margin="0,0,12,0">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Ellipse Width="7" Height="7"
+                                 Fill="{StaticResource BrushRed}"
+                                 Margin="0,0,8,0"
+                                 VerticalAlignment="Center" />
+                        <TextBlock Text="PULSE"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding PulseDrawerViewModel.RedCount}"
+                                   FontFamily="{StaticResource FontFamilyMono}"
+                                   FontSize="12"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource BrushRed}"
+                                   Margin="10,0,0,0"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Text="·"
+                                   FontSize="12"
+                                   Foreground="{StaticResource BrushTextFaint}"
+                                   Margin="6,0,6,0"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Text="{Binding PulseDrawerViewModel.AmberCount}"
+                                   FontFamily="{StaticResource FontFamilyMono}"
+                                   FontSize="12"
+                                   FontWeight="Bold"
+                                   Foreground="{StaticResource BrushAmber}"
+                                   VerticalAlignment="Center" />
+                        <TextBlock Text="▾"
+                                   FontSize="10"
+                                   Foreground="{StaticResource BrushTextFaint}"
+                                   Margin="8,0,0,0"
+                                   VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+
+                <!-- (6) Search — non-interactive placeholder.
+                     TODO Phase 9 / global search — replace with a TextBox-driven
+                     command palette. No leading magnifier glyph in this build
+                     because Segoe UI doesn't carry a clean one and adding an
+                     icon-font dependency for a single character is overkill;
+                     icons land properly in Phase 11. -->
+                <Border Grid.Column="6"
+                        CornerRadius="6"
+                        Background="{StaticResource BrushSurface2}"
+                        BorderBrush="{StaticResource BrushBorder}"
+                        BorderThickness="1"
+                        Padding="12,6,12,6"
+                        Width="240"
+                        VerticalAlignment="Center"
+                        Margin="0,0,12,0">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0"
+                                   Text="Search…"
+                                   FontSize="12"
+                                   Foreground="{StaticResource BrushTextDim}"
+                                   VerticalAlignment="Center" />
+                        <Border Grid.Column="1"
+                                Background="{StaticResource BrushSurface3}"
+                                CornerRadius="3"
+                                Padding="6,1,6,1">
+                            <TextBlock Text="Ctrl+K"
+                                       FontFamily="{StaticResource FontFamilyMono}"
+                                       FontSize="10"
+                                       Foreground="{StaticResource BrushTextDim}"
+                                       VerticalAlignment="Center" />
+                        </Border>
+                    </Grid>
+                </Border>
+
+                <!-- (7) User chip. Avatar uses a decorative red→amber gradient.
+                     SPEC §4.4 distinction: this is the avatar's visual identity,
+                     not a severity signal — red + amber are paired here for
+                     decorative contrast, never for state. -->
+                <Border Grid.Column="7"
+                        CornerRadius="20"
+                        Padding="4,4,10,4"
+                        Background="{StaticResource BrushSurface2}"
+                        BorderBrush="{StaticResource BrushBorder}"
+                        BorderThickness="1"
+                        VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border Width="24" Height="24" CornerRadius="12">
+                            <Border.Background>
+                                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                    <GradientStop Color="{StaticResource ColorRed}" Offset="0" />
+                                    <GradientStop Color="{StaticResource ColorAmber}" Offset="1" />
+                                </LinearGradientBrush>
+                            </Border.Background>
+                            <TextBlock Text="{Binding UserInitials}"
+                                       FontSize="10"
+                                       FontWeight="Bold"
+                                       Foreground="White"
+                                       HorizontalAlignment="Center"
+                                       VerticalAlignment="Center" />
+                        </Border>
+                        <StackPanel Margin="8,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding UserDisplayName}"
+                                       FontSize="12"
+                                       Foreground="{StaticResource BrushText}" />
+                            <TextBlock Text="{Binding CurrentRoleName}"
+                                       FontSize="10"
+                                       Foreground="{StaticResource BrushTextDim}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- ============== BODY ============== -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="240" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- ====== NAV TREE ====== -->
+            <Border Grid.Column="0"
+                    Background="{StaticResource BrushSurface}"
+                    BorderBrush="{StaticResource BrushBorder}"
+                    BorderThickness="0,0,1,0">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              Padding="0,16,0,16">
+                    <ItemsControl ItemsSource="{Binding Source={StaticResource NavView}}">
+                        <ItemsControl.GroupStyle>
+                            <GroupStyle>
+                                <GroupStyle.ContainerStyle>
+                                    <Style TargetType="GroupItem">
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="GroupItem">
+                                                    <StackPanel Margin="12,0,12,14">
+                                                        <!--
+                                                            Section header. Collapsed on Pulse to match the
+                                                            prototype's pattern (the Pulse Dashboard entry
+                                                            renders at the top with no group label). The
+                                                            DataTrigger compares Name (the group key, which
+                                                            is the NavigationSection enum value) to Pulse
+                                                            via x:Static — WPF DataTrigger Value supports
+                                                            static markup-extension lookups for enum
+                                                            comparison without a converter.
+                                                        -->
+                                                        <TextBlock Text="{Binding Name}"
+                                                                   Padding="6,6,8,4">
+                                                            <TextBlock.Style>
+                                                                <Style TargetType="TextBlock" BasedOn="{StaticResource TextStyleLabel}">
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding Name}" Value="{x:Static nav:NavigationSection.Pulse}">
+                                                                            <Setter Property="Visibility" Value="Collapsed" />
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </TextBlock.Style>
+                                                        </TextBlock>
+                                                        <ItemsPresenter />
+                                                    </StackPanel>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </GroupStyle.ContainerStyle>
+                            </GroupStyle>
+                        </ItemsControl.GroupStyle>
+
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type nav:NavigationItem}">
+                                <!--
+                                    Nav row. Hit-tested via Background=Transparent on the
+                                    outer Border; MouseBinding routes the click to the
+                                    shell's NavigateToCommand. The dirty-state guard runs
+                                    on the VM side; the visual stays in sync because
+                                    selection is derived (via ReferenceEquality) from the
+                                    VM's SelectedItem rather than driven by a TwoWay binding.
+                                -->
+                                <Border x:Name="ItemBorder"
+                                        CornerRadius="6"
+                                        Padding="10,7,10,7"
+                                        Background="Transparent"
+                                        Cursor="Hand">
+                                    <Border.InputBindings>
+                                        <MouseBinding Gesture="LeftClick"
+                                                      Command="{Binding DataContext.NavigateToCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                      CommandParameter="{Binding}" />
+                                    </Border.InputBindings>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <!-- TODO Phase 11: replace with icon glyph from the
+                                             chosen icon set. 16×16 placeholder maintains row
+                                             alignment so adding icons later does not reflow. -->
+                                        <Border Grid.Column="0"
+                                                Width="16"
+                                                Height="16"
+                                                Margin="0,0,10,0" />
+                                        <TextBlock x:Name="LabelText"
+                                                   Grid.Column="1"
+                                                   Text="{Binding DisplayName}"
+                                                   FontSize="13"
+                                                   Foreground="{StaticResource BrushTextDim}"
+                                                   VerticalAlignment="Center" />
+                                        <!-- Phase tag shown only on unavailable items. -->
+                                        <TextBlock x:Name="PhaseTag"
+                                                   Grid.Column="2"
+                                                   Text="{Binding TargetPhase, StringFormat='P{0}'}"
+                                                   FontFamily="{StaticResource FontFamilyMono}"
+                                                   FontSize="10"
+                                                   Foreground="{StaticResource BrushTextFaint}"
+                                                   VerticalAlignment="Center"
+                                                   Visibility="Collapsed" />
+                                    </Grid>
+                                </Border>
+                                <!--
+                                    Trigger ordering note: WPF Style/Template triggers fire in
+                                    declaration order, and later triggers' setters override
+                                    earlier ones for the same property. The order below is:
+                                      1. IsAvailable=false  — dim default, phase tag visible
+                                      2. IsMouseOver=true   — surface lift, label brightens
+                                      3. IsSelected (ref-eq) — accent fill, label brightens
+                                    so a hovered or selected unavailable row brightens its
+                                    label as a clickable cue (clicking unavailable items
+                                    routes to a placeholder view in E2.4).
+                                -->
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding IsAvailable}" Value="False">
+                                        <Setter TargetName="LabelText" Property="Foreground" Value="{StaticResource BrushTextFaint}" />
+                                        <Setter TargetName="PhaseTag" Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                    <Trigger SourceName="ItemBorder" Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource BrushSurface2}" />
+                                        <Setter TargetName="LabelText" Property="Foreground" Value="{StaticResource BrushText}" />
+                                    </Trigger>
+                                    <DataTrigger Value="True">
+                                        <DataTrigger.Binding>
+                                            <MultiBinding Converter="{StaticResource ReferenceEquality}">
+                                                <Binding />
+                                                <Binding Path="DataContext.SelectedItem"
+                                                         RelativeSource="{RelativeSource AncestorType=Window}" />
+                                            </MultiBinding>
+                                        </DataTrigger.Binding>
+                                        <Setter TargetName="ItemBorder" Property="Background" Value="{StaticResource BrushAccentDim}" />
+                                        <Setter TargetName="LabelText" Property="Foreground" Value="{StaticResource BrushText}" />
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Border>
+
+            <!-- ====== CONTENT AREA ====== -->
+            <Grid Grid.Column="1">
+                <!--
+                    Empty-state placeholder. Declared first so it sits behind the
+                    ContentControl; its NullToVisibility binding hides it the
+                    moment CurrentContent is non-null. CurrentContent stays null
+                    in E2.2-B because placeholder VMs ship in E2.4.
+                -->
+                <TextBlock Text="Select a module from the navigation tree"
+                           Foreground="{StaticResource BrushTextFaint}"
+                           FontSize="14"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Visibility="{Binding CurrentContent, Converter={StaticResource NullToVisibility}}" />
+
+                <ContentControl Content="{Binding CurrentContent}" />
+            </Grid>
+        </Grid>
+        </Grid>
+
+        <!--
+            Layer 2: Pulse drawer backdrop. Full-window darken;
+            clicking it routes to CloseDrawerCommand. Color #73000000
+            ≈ rgba(0,0,0,0.45) per prototype line 343.
+        -->
+        <Border Background="#73000000"
+                Visibility="{Binding PulseDrawerViewModel.IsOpen, Converter={StaticResource BoolToVisibility}}">
+            <Border.InputBindings>
+                <MouseBinding Gesture="LeftClick"
+                              Command="{Binding PulseDrawerViewModel.CloseDrawerCommand}" />
+            </Border.InputBindings>
+        </Border>
+
+        <!-- Layer 3: Pulse drawer (slides in from the right). -->
+        <pulseviews:PulseDrawerView DataContext="{Binding PulseDrawerViewModel}" />
     </Grid>
 </Window>

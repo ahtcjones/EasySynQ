@@ -1,0 +1,48 @@
+<UserControl x:Class="EasySynQ.UI.Placeholders.ComingSoonView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:ph="clr-namespace:EasySynQ.UI.Placeholders"
+             mc:Ignorable="d"
+             d:DesignWidth="800"
+             d:DesignHeight="500"
+             d:DataContext="{d:DesignInstance Type=ph:ComingSoonViewModel, IsDesignTimeCreatable=False}">
+    <Grid>
+        <StackPanel HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    MaxWidth="640"
+                    Margin="40">
+            <TextBlock Style="{StaticResource TextStyleHeading}"
+                       Text="{Binding DisplayName}"
+                       HorizontalAlignment="Center" />
+            <TextBlock Style="{StaticResource TextStyleCaption}"
+                       Text="{Binding TargetPhase, StringFormat='Coming in Phase {0}'}"
+                       HorizontalAlignment="Center"
+                       Margin="0,8,0,0" />
+            <TextBlock Text="{Binding Description}"
+                       Foreground="{StaticResource BrushTextDim}"
+                       FontSize="13"
+                       TextWrapping="Wrap"
+                       TextAlignment="Center"
+                       Margin="0,24,0,0" />
+            <!-- Hairline divider. Height=1 Border with the standard border brush. -->
+            <Border Margin="0,32,0,0"
+                    Background="{StaticResource BrushBorder}"
+                    Height="1"
+                    HorizontalAlignment="Stretch" />
+            <!-- Phase pill — mirrors the nav tree's small phase tag at a larger size. -->
+            <Border Margin="0,24,0,0"
+                    HorizontalAlignment="Center"
+                    Background="{StaticResource BrushSurface3}"
+                    CornerRadius="14"
+                    Padding="14,6,14,6">
+                <TextBlock Text="{Binding TargetPhase, StringFormat='Phase {0}'}"
+                           FontFamily="{StaticResource FontFamilyMono}"
+                           FontSize="12"
+                           FontWeight="Bold"
+                           Foreground="{StaticResource BrushTextDim}" />
+            </Border>
+        </StackPanel>
+    </Grid>
+</UserControl>

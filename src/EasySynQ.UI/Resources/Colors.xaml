@@ -46,6 +46,15 @@
     <Color x:Key="ColorRed">#FFF85149</Color>
     <Color x:Key="ColorRedBg">#FF2E1414</Color>
 
+    <!-- Badge background variants. Translucent overlays of the severity hue
+         at alpha 0x33 (~0.2), matching the prototype's nav-badge styling
+         (rgba(248,81,73,0.2) / rgba(210,153,34,0.2)). DIFFERENT from the
+         *Bg solids above: those are full-saturation tile/chip surfaces,
+         these are see-through pills that pick up the surface they sit on.
+         Two visual purposes, two named tokens. -->
+    <Color x:Key="ColorBadgeRedBg">#33F85149</Color>
+    <Color x:Key="ColorBadgeAmberBg">#33D29922</Color>
+
     <!-- Linkage accent. See the SPEC §4.4 block at the top of this file —
          NEVER use this color (or its brush) for severity. -->
     <Color x:Key="ColorPurple">#FFA371F7</Color>
@@ -73,6 +82,10 @@
     <SolidColorBrush x:Key="BrushAmberBg" Color="{StaticResource ColorAmberBg}" />
     <SolidColorBrush x:Key="BrushRed" Color="{StaticResource ColorRed}" />
     <SolidColorBrush x:Key="BrushRedBg" Color="{StaticResource ColorRedBg}" />
+
+    <!-- Translucent badge backgrounds — see the ColorBadge*Bg block above. -->
+    <SolidColorBrush x:Key="BrushBadgeRedBg" Color="{StaticResource ColorBadgeRedBg}" />
+    <SolidColorBrush x:Key="BrushBadgeAmberBg" Color="{StaticResource ColorBadgeAmberBg}" />
 
     <SolidColorBrush x:Key="BrushPurple" Color="{StaticResource ColorPurple}" />
 

@@ -1,0 +1,260 @@
+<UserControl x:Class="EasySynQ.UI.Pulse.Views.PulseDrawerView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:pulse="clr-namespace:EasySynQ.UI.Pulse"
+             mc:Ignorable="d"
+             d:DesignWidth="420"
+             d:DesignHeight="800"
+             HorizontalAlignment="Right"
+             Width="420"
+             IsHitTestVisible="{Binding IsOpen}"
+             d:DataContext="{d:DesignInstance Type=pulse:PulseDrawerViewModel, IsDesignTimeCreatable=False}">
+
+    <UserControl.Resources>
+        <!--
+            Slide animations. The UserControl starts off-screen
+            (TranslateTransform.X=420) and slides in to X=0 on
+            IsOpen → True. Matches the prototype's
+            "transform: translateX 0.25s ease-out".
+        -->
+        <Storyboard x:Key="SlideIn">
+            <DoubleAnimation Storyboard.TargetName="SlideTransform"
+                             Storyboard.TargetProperty="X"
+                             To="0" Duration="0:0:0.25">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut" />
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+        <Storyboard x:Key="SlideOut">
+            <DoubleAnimation Storyboard.TargetName="SlideTransform"
+                             Storyboard.TargetProperty="X"
+                             To="420" Duration="0:0:0.25">
+                <DoubleAnimation.EasingFunction>
+                    <CubicEase EasingMode="EaseOut" />
+                </DoubleAnimation.EasingFunction>
+            </DoubleAnimation>
+        </Storyboard>
+
+        <!--
+            CollectionViewSource for the drawer's grouped tile rendering.
+            Source is set in code-behind on DataContextChanged because
+            bindings inside Resources don't resolve a DataContext.
+            Mirrors the MainWindow nav tree pattern.
+        -->
+        <CollectionViewSource x:Key="GroupedTiles">
+            <CollectionViewSource.GroupDescriptions>
+                <PropertyGroupDescription PropertyName="Category" />
+            </CollectionViewSource.GroupDescriptions>
+        </CollectionViewSource>
+    </UserControl.Resources>
+
+    <UserControl.RenderTransform>
+        <TranslateTransform x:Name="SlideTransform" X="420" />
+    </UserControl.RenderTransform>
+
+    <UserControl.Style>
+        <Style TargetType="UserControl">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsOpen}" Value="True">
+                    <DataTrigger.EnterActions>
+                        <BeginStoryboard Storyboard="{StaticResource SlideIn}" />
+                    </DataTrigger.EnterActions>
+                    <DataTrigger.ExitActions>
+                        <BeginStoryboard Storyboard="{StaticResource SlideOut}" />
+                    </DataTrigger.ExitActions>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Style>
+
+    <Border Background="{StaticResource BrushSurface}"
+            BorderBrush="{StaticResource BrushBorder}"
+            BorderThickness="1,0,0,0">
+        <!--
+            Drop-shadow on the left edge approximates prototype line 345's
+            box-shadow: -10px 0 40px rgba(0,0,0,0.3).
+        -->
+        <Border.Effect>
+            <DropShadowEffect Color="Black" Opacity="0.3" BlurRadius="40" ShadowDepth="0" Direction="180" />
+        </Border.Effect>
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- ============ HEADER ============ -->
+            <Border Grid.Row="0"
+                    Padding="18,16,12,16"
+                    BorderThickness="0,0,0,1"
+                    BorderBrush="{StaticResource BrushBorder}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                        <TextBlock Text="Pulse" FontSize="16" FontWeight="Bold" />
+                        <TextBlock Style="{StaticResource TextStyleCaption}"
+                                   Text="Live alerts and good news"
+                                   Margin="0,2,0,0" />
+                    </StackPanel>
+                    <Button Grid.Column="1"
+                            Style="{StaticResource ButtonGhost}"
+                            Command="{Binding RefreshTilesCommand}"
+                            Content="Refresh"
+                            FontSize="11"
+                            Padding="10,4,10,4"
+                            VerticalAlignment="Center" />
+                    <Button Grid.Column="2"
+                            Style="{StaticResource ButtonGhost}"
+                            Command="{Binding CloseDrawerCommand}"
+                            Content="✕"
+                            FontSize="14"
+                            Padding="8,4,8,4"
+                            Margin="6,0,0,0"
+                            VerticalAlignment="Center" />
+                </Grid>
+            </Border>
+
+            <!-- ============ BODY ============ -->
+            <ScrollViewer Grid.Row="1"
+                          VerticalScrollBarVisibility="Auto"
+                          HorizontalScrollBarVisibility="Disabled"
+                          Padding="14,16,16,24">
+                <ItemsControl ItemsSource="{Binding Source={StaticResource GroupedTiles}}">
+                    <ItemsControl.GroupStyle>
+                        <GroupStyle>
+                            <GroupStyle.ContainerStyle>
+                                <Style TargetType="GroupItem">
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="GroupItem">
+                                                <StackPanel Margin="0,0,0,16">
+                                                    <Grid Margin="4,4,4,6">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <TextBlock Grid.Column="0"
+                                                                   Style="{StaticResource TextStyleLabel}"
+                                                                   Text="{Binding Name}" />
+                                                        <Border Grid.Column="1"
+                                                                Background="{StaticResource BrushSurface3}"
+                                                                CornerRadius="10"
+                                                                Padding="7,1,7,1">
+                                                            <TextBlock Text="{Binding ItemCount}"
+                                                                       FontSize="10"
+                                                                       Foreground="{StaticResource BrushTextDim}" />
+                                                        </Border>
+                                                    </Grid>
+                                                    <ItemsPresenter />
+                                                </StackPanel>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
+                                </Style>
+                            </GroupStyle.ContainerStyle>
+                        </GroupStyle>
+                    </ItemsControl.GroupStyle>
+
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type pulse:PulseTile}">
+                            <!--
+                                Tile chrome. Default surface uses BrushSurface2 / BrushBorder;
+                                severity DataTriggers below override to the tinted
+                                rgba(severity, 0.06) / rgba(severity, 0.30) treatment from
+                                prototype lines 362–368. Hex literals carry the alpha inline
+                                because these tints are tile-local (no other surface uses them).
+                            -->
+                            <Border x:Name="TileBorder"
+                                    CornerRadius="8"
+                                    Padding="10,12,12,12"
+                                    Margin="0,0,0,6"
+                                    Background="{StaticResource BrushSurface2}"
+                                    BorderBrush="{StaticResource BrushBorder}"
+                                    BorderThickness="1"
+                                    Cursor="Hand">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <!--
+                                        Icon plate. Severity DataTriggers tint the background
+                                        per prototype lines 366–368. No glyph yet (Phase 11);
+                                        32×32 placeholder preserves layout.
+                                    -->
+                                    <Border x:Name="IconPlate"
+                                            Grid.Column="0"
+                                            Width="32" Height="32"
+                                            CornerRadius="7"
+                                            Background="{StaticResource BrushSurface3}"
+                                            Margin="0,0,11,0"
+                                            VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Headline}"
+                                                   FontSize="12"
+                                                   FontWeight="SemiBold"
+                                                   TextWrapping="Wrap" />
+                                        <TextBlock Style="{StaticResource TextStyleCaption}"
+                                                   Text="{Binding Detail}"
+                                                   Margin="0,2,0,0"
+                                                   TextWrapping="Wrap"
+                                                   Visibility="{Binding Detail, Converter={StaticResource NullOrEmptyToVisibility}}" />
+                                    </StackPanel>
+                                    <TextBlock x:Name="CountText"
+                                               Grid.Column="2"
+                                               Text="{Binding Count}"
+                                               FontFamily="{StaticResource FontFamilyMono}"
+                                               FontSize="20"
+                                               FontWeight="Bold"
+                                               Foreground="{StaticResource BrushTextDim}"
+                                               VerticalAlignment="Center"
+                                               Margin="11,0,0,0" />
+                                </Grid>
+                            </Border>
+                            <DataTemplate.Triggers>
+                                <!-- Hide count when the tile carries no numeric badge. -->
+                                <DataTrigger Binding="{Binding Count}" Value="{x:Null}">
+                                    <Setter TargetName="CountText" Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+
+                                <!-- Red severity. -->
+                                <DataTrigger Binding="{Binding Severity}" Value="{x:Static pulse:PulseSeverity.Red}">
+                                    <Setter TargetName="TileBorder" Property="Background" Value="#0FF85149" />
+                                    <Setter TargetName="TileBorder" Property="BorderBrush" Value="#4DF85149" />
+                                    <Setter TargetName="IconPlate" Property="Background" Value="#26F85149" />
+                                    <Setter TargetName="CountText" Property="Foreground" Value="{StaticResource BrushRed}" />
+                                </DataTrigger>
+
+                                <!-- Amber severity. -->
+                                <DataTrigger Binding="{Binding Severity}" Value="{x:Static pulse:PulseSeverity.Amber}">
+                                    <Setter TargetName="TileBorder" Property="Background" Value="#0FD29922" />
+                                    <Setter TargetName="TileBorder" Property="BorderBrush" Value="#4DD29922" />
+                                    <Setter TargetName="IconPlate" Property="Background" Value="#26D29922" />
+                                    <Setter TargetName="CountText" Property="Foreground" Value="{StaticResource BrushAmber}" />
+                                </DataTrigger>
+
+                                <!-- Green severity (reverse-pulse / good-news). Smaller count
+                                     font to match prototype line 375. -->
+                                <DataTrigger Binding="{Binding Severity}" Value="{x:Static pulse:PulseSeverity.Green}">
+                                    <Setter TargetName="TileBorder" Property="Background" Value="#0D3FB950" />
+                                    <Setter TargetName="TileBorder" Property="BorderBrush" Value="#333FB950" />
+                                    <Setter TargetName="IconPlate" Property="Background" Value="#263FB950" />
+                                    <Setter TargetName="CountText" Property="Foreground" Value="{StaticResource BrushGreen}" />
+                                    <Setter TargetName="CountText" Property="FontSize" Value="14" />
+                                </DataTrigger>
+                            </DataTemplate.Triggers>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </ScrollViewer>
+        </Grid>
+    </Border>
+</UserControl>

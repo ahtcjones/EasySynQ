@@ -19,4 +19,14 @@
     <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!--
+      Test seam. The MSBuild ItemGroup form (.NET 5+) is preferred over the
+      [assembly: InternalsVisibleTo] attribute because it lives in the
+      project file alongside the rest of the dependency declarations and
+      survives auto-generated AssemblyInfo regen.
+    -->
+    <InternalsVisibleTo Include="EasySynQ.Tests" />
+  </ItemGroup>
+
 </Project>
