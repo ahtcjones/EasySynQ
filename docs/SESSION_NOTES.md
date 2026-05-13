@@ -242,3 +242,40 @@ Tracked here so design decisions surfaced mid-implementation do not get lost bet
 - Navigation events are not audited. The shell's NavigateToAsync produces no audit-log row when the user changes the active module or detail view. Same root cause as the sign-in audit gap: the current audit pipeline emits one row per entity Insert/Update/Delete/HardDelete via AuditSaveChangesInterceptor, and navigation is a UI event with no entity mutation. Resolve under the same ADR that addresses sign-in audit — extending AuditAction with event-class values and relaxing AuditLogEntry's Before/After shape requirement — so the audit shape decision is made once for both surfaces.
 
 ---
+
+## 2026-05-13 — Chunk E1 + E2 landed
+
+Phase 1's user-facing surfaces are now in the repo. Two commits on master:
+
+- `6f460d0` Chunk E1: WPF theme resources and login surface
+- (latest) Chunk E2: WPF shell — navigation, Pulse drawer, content host
+
+Test count: 225 across the suite, 5/5 stability.
+
+What's done:
+- Theme tokens (Colors / Typography / Spacing / BaseStyles) merged into App.xaml.
+- LoginWindow + LoginViewModel translating IAuthenticationService's five-arm result; integration test pins ADR 0006 lockout-window behavior end-to-end.
+- Shell: MainWindow with topbar (brand "EQ", module chip, breadcrumb, Pulse button, user chip), nav tree (13 entries grouped under five §4.1 sections), content area with placeholder views.
+- Pulse drawer with IPulseSource contract (consumer-side, single async GetTilesAsync), MockPulseSource hardcoding prototype content, slide-in via RenderTransform.
+- NavigationContentFactory as the single seam future module views replace into; today branches "pulse.dashboard" vs everything-else.
+- IDirtyStateAware protocol in place, exercised end-to-end by unit tests, no production consumer yet (first will be Phase 2 Documents editing).
+- IWritableCurrentUserAccessor + WpfCurrentUserAccessor (impl ready, registration deferred to E5).
+- New converters: NullToVisibility, ReferenceEqualityMultiConverter. New brushes: BadgeRedBg / BadgeAmberBg. New button variant: ButtonGhost.
+
+What's NOT done (Chunk E still open):
+- **E3 — Lock Inspector control** (SPEC §4.3 "Why is this locked?"). Reusable WPF user control with the three lock states (NCR HELD, OOS asset, superseded document) and a demo view. Not started.
+- **E5 — Host wiring.** App.xaml.cs currently constructs the dependency graph by hand with three seams (MockPulseSource, two NullLoggers) concentrated in OnStartup. E5 replaces this with Microsoft.Extensions.Hosting DI container, EF Core migration check on startup, global unhandled-exception handler, and the LoginWindow→MainWindow flow. Removes the three seams in one place.
+
+E4 was originally scoped as "placeholder views" — landed inside E2.4. No separate E4 sub-chunk remains.
+
+Phase 1 Follow-Ups (already in the file above, just enumerating for the next contributor):
+1. Sign-in audit coverage incomplete (unknown-user / locked / disabled / bootstrap branches produce no audit row)
+2. "Last successful sign-in" footer hint deferred (needs PreviousLoginUtc somewhere)
+3. Navigation events not audited (same audit-pipeline root cause as #1)
+4. Pulse drawer tile tints use inline alpha-bearing hex literals; promote to named tokens if a second surface needs them
+
+Next session entry point: Chunk E3 (Lock Inspector) or Chunk E5 (host wiring). E5 is the more architecturally consequential of the two and unblocks the LoginWindow→MainWindow path the app currently doesn't have. E3 is more contained but doesn't unblock anything else. Recommend E5 next unless there's a reason to prefer E3.
+
+Working tree clean as of this entry.
+
+---
