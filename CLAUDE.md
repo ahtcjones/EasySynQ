@@ -93,6 +93,9 @@ Within a phase, stop at meaningful boundaries and let me review before continuin
 
 Do not run a full phase end-to-end in one shot.
 
+### Commit authorization
+Never commit without explicit authorization from me. Always present the commit message for review first, then wait for explicit go-ahead before running `git commit`. This applies even when working through a coherent chunk where commits feel obvious — the commit decision is its own checkpoint, surfaced separately from the work itself. The veto point on both code and message has to come *before* history is written; once a commit is in, fixing the wrong thing means a follow-up commit, not an edit.
+
 ### What to do when uncertain
 - If the spec is ambiguous: ask. Do not guess. Cite the SPEC.md section that triggered the question.
 - If you encounter a real conflict between the spec and the prototype: flag it, explain both sides, and wait for direction.
