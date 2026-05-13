@@ -46,6 +46,8 @@ Policy values exposed via `IPasswordPolicy`:
 
 Observation window: the counter resets on success. There is no separate "rolling 15-minute window" calculation. After 5 *consecutive* failures the lockout is applied; after `LockoutDuration` elapses the next attempt is evaluated normally (with the counter still at 5; one more failure re-locks immediately, one success resets it to 0).
 
+**Counter is preserved across lockout expiry, not reset.** When `LockoutDuration` elapses, the auth service evaluates the next attempt against the stored hash but does *not* zero `FailedLoginCount` first. The reasoning: resetting the counter would mean the lockout buys the attacker exactly one 15-minute pause per 5 attempts and then the throttle starts over. An online attacker willing to script `5 attempts → 15-min sleep → repeat` sees an effective 5 attempts per 15 minutes — meaningful but not punitive. With the counter preserved, the same attacker gets `5 attempts → 15-min sleep → 1 attempt → re-lock → 15-min sleep → 1 attempt → re-lock → ...`: an effective 1 attempt per 15 minutes after the first lockout. A legitimate user who actually knew the password is unaffected (one success zeros the counter); only the actively-failing-after-already-being-locked-out caller is throttled further. The asymmetry is deliberate.
+
 A locked account returns `AccountLocked(LockedUntilUtc)` from `AuthenticateAsync` regardless of whether the supplied password is correct. This prevents using the failure response as an oracle for password correctness during a lockout.
 
 ### First-run bootstrap: first login provisions the Administrator
@@ -109,6 +111,11 @@ If a future deployment context shifts the threat model — for example, adopting
 
 - **Why considered:** Simpler. No lockout state to manage.
 - **Why rejected:** A 600k-iteration PBKDF2 verify takes ~200ms; that is enough to deter manual guessing but not enough to deter an attacker who can script 5 attempts per second across a couple of minutes for thousands of accounts. Account lockout is the standard online-attack countermeasure and is required for ISO 9001 §7.5.3 (control of documented information) defensibility.
+
+### Reset `FailedLoginCount` to 0 when the lockout expires
+
+- **Why considered:** Mirrors the "fresh start after the timeout" intuition. Easier to explain to operators ("after 15 minutes you get a clean slate"). Some auth libraries (notably ASP.NET Core Identity's default lockout provider) work this way.
+- **Why rejected:** Defeats the throttle. Reset-on-expiry means a scripted attacker gets `5 → 15 min → 5 → 15 min → 5 ...` indefinitely — an effective 5 attempts per 15 minutes, sustained. Preserving the counter (the chosen behavior above) yields `5 → 15 min → 1 → 15 min → 1 → ...` after the first lockout — an effective 1 attempt per 15 minutes, asymptotic to almost-stopped. The legitimate-user impact is zero: a real user who finally remembers the password succeeds on the first post-lockout attempt and the counter zeros. Only the still-failing caller pays the steeper price, which is the population we want to throttle. The "easier to explain" benefit is not worth the throttle weakening.
 
 ## Consequences
 
