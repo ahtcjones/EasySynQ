@@ -1,0 +1,20 @@
+{
+  "recommendations": [
+    "ms-dotnettools.csdevkit",
+    "ms-dotnettools.vscode-dotnet-runtime",
+    "ms-dotnettools.vscodeintellicode-csharp",
+    "eamodio.gitlens",
+    "mhutchie.git-graph",
+    "editorconfig.editorconfig",
+    "usernamehw.errorlens",
+    "streetsidesoftware.code-spell-checker",
+    "yzhang.markdown-all-in-one",
+    "davidanson.vscode-markdownlint",
+    "ibm.output-colorizer",
+    "christian-kohler.path-intellisense",
+    "qwtel.sqlite-viewer"
+  ],
+  "unwantedRecommendations": [
+    "ms-vscode.csharp"
+  ]
+}

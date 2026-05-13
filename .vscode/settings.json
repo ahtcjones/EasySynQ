@@ -1,0 +1,63 @@
+{
+  "editor.formatOnSave": true,
+  "editor.bracketPairColorization.enabled": true,
+  "editor.guides.bracketPairs": "active",
+  "editor.inlineSuggest.enabled": true,
+  "editor.rulers": [120],
+  "editor.renderWhitespace": "boundary",
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.trimFinalNewlines": true,
+  "files.eol": "\n",
+  "files.exclude": {
+    "**/bin": true,
+    "**/obj": true,
+    "**/.vs": true
+  },
+  "search.exclude": {
+    "**/bin": true,
+    "**/obj": true,
+    "**/Migrations": false,
+    "**/.git": true
+  },
+  "git.confirmSync": false,
+  "git.autofetch": true,
+  "errorLens.enabledDiagnosticLevels": ["error", "warning"],
+  "errorLens.excludeBySource": [
+    "cSpell"
+  ],
+  "dotnet.defaultSolution": "EasySynQ.slnx",
+  "csharp.semanticHighlighting.enabled": true,
+  "omnisharp.enableEditorConfigSupport": true,
+  "[csharp]": {
+    "editor.defaultFormatter": "ms-dotnettools.csdevkit",
+    "editor.formatOnSave": true,
+    "editor.tabSize": 4
+  },
+  "[markdown]": {
+    "editor.wordWrap": "on",
+    "files.trimTrailingWhitespace": false
+  },
+  "[json]": {
+    "editor.tabSize": 2
+  },
+  "[xml]": {
+    "editor.tabSize": 2
+  },
+  "cSpell.words": [
+    "AwesomeAssertions",
+    "easysynq",
+    "EasySynQ",
+    "interceptor",
+    "interceptors",
+    "metallurgy",
+    "Pyromet",
+    "pyrometry",
+    "Rfc",
+    "Rodriguez",
+    "Sqlite",
+    "thermocouple",
+    "thermocouples",
+    "unitof"
+  ]
+}
