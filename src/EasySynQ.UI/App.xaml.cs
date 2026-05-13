@@ -5,9 +5,14 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Threading;
 
+using EasySynQ.Data.Extensions;
 using EasySynQ.Services.Abstractions;
+using EasySynQ.Services.Audit;
 using EasySynQ.Services.Identity;
+using EasySynQ.Services.Time;
+using EasySynQ.UI.Audit;
 using EasySynQ.UI.Identity;
+using EasySynQ.UI.Login;
 using EasySynQ.UI.Navigation;
 using EasySynQ.UI.Pulse;
 
@@ -144,10 +149,15 @@ public partial class App : Application
 
     /// <summary>
     /// Populates the host's service collection with the shell's
-    /// dependency graph. Every registration is a singleton — view
-    /// models own observable state bound 1:1 by views, the user
-    /// accessor is shared app-wide state, and <see cref="MainWindow"/>
-    /// can only be <c>Show()</c>-n once per instance.
+    /// dependency graph. UI singletons (view models, MainWindow, the
+    /// current-user accessor) sit alongside the data layer's full
+    /// registration (DbContext, interceptors, repositories,
+    /// AuthenticationService) brought in via
+    /// <see cref="ServiceCollectionExtensions.AddEasySynQDataServices"/>.
+    /// LoginWindow and LoginViewModel are Transient — a fresh sign-in
+    /// attempt (first-launch today; future sign-out re-login) gets a
+    /// fresh view model with no stale lockout state and a fresh
+    /// Window (WPF Window instances are single-<c>Show()</c>).
     /// </summary>
     /// <param name="services">The service collection to populate.</param>
     private static void ConfigureServices(IServiceCollection services)
@@ -163,16 +173,58 @@ public partial class App : Application
         // interface is visible to every downstream consumer of
         // ICurrentUserAccessor (audit interceptor, standard-fields
         // interceptor, signature service).
+        //
+        // Lifetime is Singleton (not Scoped as
+        // AddEasySynQDataServices' doc-example suggests): app-wide
+        // identity belongs to the app lifetime, not per EF scope;
+        // Singleton-into-Scoped consumption is valid in MS DI.
         services.AddSingleton<WpfCurrentUserAccessor>();
         services.AddSingleton<IWritableCurrentUserAccessor>(
             sp => sp.GetRequiredService<WpfCurrentUserAccessor>());
         services.AddSingleton<ICurrentUserAccessor>(
             sp => sp.GetRequiredService<WpfCurrentUserAccessor>());
 
+        // Cross-cutting abstractions consumed by the data layer's
+        // interceptors and services (per AddEasySynQDataServices'
+        // contract, the caller registers these first). All Singleton:
+        // SystemClock and CurrentTimeTemporalResolver are stateless
+        // time sources, UiAuditCorrelationProvider is immutable.
+        services.AddSingleton<IClock, SystemClock>();
+        services.AddSingleton<ITemporalResolver, CurrentTimeTemporalResolver>();
+        services.AddSingleton<IAuditCorrelationProvider, UiAuditCorrelationProvider>();
+
+        // Data layer: DbContext, both interceptors, generic +
+        // concrete repositories, UnitOfWork, IPasswordPolicy,
+        // IPasswordHasher, IAuthenticationService, ISignatureService.
+        // Parent directory created before registration since neither
+        // EF Core nor the SQLite provider creates it on open.
+        var dbPath = GetDatabasePath();
+        Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
+        services.AddEasySynQDataServices($"Data Source={dbPath}");
+
+        services.AddTransient<LoginViewModel>();
+        services.AddTransient<LoginWindow>();
+
         services.AddSingleton<PulseDrawerViewModel>();
         services.AddSingleton<MainShellViewModel>();
         services.AddSingleton<MainWindow>();
     }
+
+    /// <summary>
+    /// Full path to the EasySynQ SQLite master database. Single
+    /// source of truth shared by host wiring (E5.4) and the migration
+    /// check on startup (E5.5). Path is
+    /// <c>%LOCALAPPDATA%\EasySynQ\db\EasySynQ_Master.db</c>; callers
+    /// are responsible for creating the parent directory before use
+    /// (same pattern as <see cref="ConfigureSerilog"/>'s log
+    /// directory handling).
+    /// </summary>
+    private static string GetDatabasePath() =>
+        Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "EasySynQ",
+            "db",
+            "EasySynQ_Master.db");
 
     /// <summary>
     /// Wires the three global exception handlers — UI-dispatcher,
