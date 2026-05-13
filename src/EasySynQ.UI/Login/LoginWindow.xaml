@@ -1,0 +1,177 @@
+<Window x:Class="EasySynQ.UI.Login.LoginWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:login="clr-namespace:EasySynQ.UI.Login"
+        mc:Ignorable="d"
+        Title="EasySynQ — Sign In"
+        Width="420"
+        Height="520"
+        ResizeMode="NoResize"
+        SizeToContent="Manual"
+        WindowStyle="SingleBorderWindow"
+        WindowStartupLocation="CenterScreen"
+        d:DataContext="{d:DesignInstance Type=login:LoginViewModel, IsDesignTimeCreatable=False}">
+
+    <!--
+        Layout strategy: single-cell Grid containing two visually independent
+        elements — the centered sign-in card and the bottom-right version
+        stamp. Both occupy the same logical cell; their HorizontalAlignment /
+        VerticalAlignment values pin them to opposite anchors so the negative
+        space of the window separates them.
+    -->
+    <Grid>
+
+        <!-- Sign-in card -->
+        <Border Background="{StaticResource BrushSurface}"
+                BorderBrush="{StaticResource BrushBorder}"
+                BorderThickness="1"
+                CornerRadius="12"
+                Width="360"
+                Padding="28"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center">
+            <!--
+                Padding 28 == Spacing.xaml SpaceXXXL. Inlined as a Thickness
+                here because WPF cannot bind a Thickness setter to a single
+                Double resource without a converter; the magnitude still
+                comes from the token.
+            -->
+            <StackPanel>
+
+                <!--
+                    Brand mark. Square plate with the accent→purple diagonal
+                    gradient. CSS reference: linear-gradient(135deg, accent,
+                    purple). WPF's StartPoint=(0,0)/EndPoint=(1,1) produces
+                    the same top-left → bottom-right direction.
+                -->
+                <Border Width="56"
+                        Height="56"
+                        CornerRadius="14"
+                        HorizontalAlignment="Center"
+                        Margin="0,0,0,16">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                            <GradientStop Color="{StaticResource ColorAccent}" Offset="0" />
+                            <GradientStop Color="{StaticResource ColorPurple}" Offset="1" />
+                        </LinearGradientBrush>
+                    </Border.Background>
+                    <TextBlock Text="Q"
+                               FontFamily="{StaticResource FontFamilyBody}"
+                               FontSize="22"
+                               FontWeight="ExtraBold"
+                               Foreground="White"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                </Border>
+
+                <!-- Title -->
+                <TextBlock Style="{StaticResource TextStyleHeading}"
+                           Text="EasySynQ"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,4" />
+
+                <!-- Subtitle -->
+                <TextBlock Style="{StaticResource TextStyleCaption}"
+                           Text="Quality Management System"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,24" />
+
+                <!-- Username label -->
+                <TextBlock Style="{StaticResource TextStyleLabel}"
+                           Text="Username"
+                           Margin="0,0,0,6" />
+
+                <!--
+                    Username input. UpdateSourceTrigger=PropertyChanged keeps
+                    SignInCommand.CanExecute live with each keystroke so the
+                    submit button enables on the first non-whitespace char.
+                -->
+                <TextBox x:Name="UsernameTextBox"
+                         Text="{Binding Username, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                         HorizontalAlignment="Stretch"
+                         Margin="0,0,0,12"
+                         AutomationProperties.Name="Username" />
+
+                <!-- Password label -->
+                <TextBlock Style="{StaticResource TextStyleLabel}"
+                           Text="Password"
+                           Margin="0,0,0,6" />
+
+                <!--
+                    Password input. PasswordBox.Password is unbindable by
+                    design (the binding pipeline would surface the
+                    plaintext to anyone watching property-change events).
+                    The value flows to the command via the
+                    CommandParameter binding on SignInButton; code-behind
+                    nudges that binding on each keystroke because
+                    PasswordBox.Password raises no INotifyPropertyChanged.
+                -->
+                <PasswordBox x:Name="PasswordBox"
+                             HorizontalAlignment="Stretch"
+                             Margin="0,0,0,16"
+                             PasswordChanged="PasswordBox_OnPasswordChanged"
+                             AutomationProperties.Name="Password" />
+
+                <!--
+                    Error region. Visible only when HasError is true.
+                    The body line (ErrorMessage) is for human reading; the
+                    mono line (LogCorrelationId) is for users to read aloud
+                    or paste into a support ticket. Duplication is
+                    intentional — different ergonomics, same information.
+                -->
+                <Border CornerRadius="6"
+                        Padding="10,8,10,8"
+                        Margin="0,0,0,16"
+                        Background="{StaticResource BrushRedBg}"
+                        BorderBrush="{StaticResource BrushRed}"
+                        BorderThickness="1"
+                        Visibility="{Binding HasError, Converter={StaticResource BoolToVisibility}}">
+                    <StackPanel>
+                        <TextBlock Text="{Binding ErrorMessage}"
+                                   Foreground="{StaticResource BrushRed}"
+                                   FontSize="12"
+                                   TextWrapping="Wrap" />
+                        <TextBlock Style="{StaticResource TextStyleMonoSmall}"
+                                   Text="{Binding LogCorrelationId}"
+                                   Margin="0,4,0,0"
+                                   Visibility="{Binding LogCorrelationId, Converter={StaticResource NullOrEmptyToVisibility}}" />
+                    </StackPanel>
+                </Border>
+
+                <!--
+                    Sign-in button. Command/CanExecute drives IsEnabled
+                    transparently. CommandParameter reads PasswordBox.Password
+                    via element binding; the PasswordChanged handler in
+                    code-behind calls UpdateTarget on this binding so the
+                    parameter stays current with each keystroke.
+                    IsDefault=True wires Enter to submit.
+                -->
+                <Button x:Name="SignInButton"
+                        Style="{StaticResource ButtonPrimary}"
+                        Content="Sign In"
+                        Command="{Binding SignInCommand}"
+                        CommandParameter="{Binding ElementName=PasswordBox, Path=Password}"
+                        IsDefault="True"
+                        Height="36"
+                        HorizontalAlignment="Stretch"
+                        AutomationProperties.Name="Sign In" />
+
+            </StackPanel>
+        </Border>
+
+        <!--
+            Version + environment stamp. Hardcoded for Step 3.
+            TODO Step 5: replace with reflection-pulled AssemblyInformationalVersion
+            and an environment toggle (DEV / STAGING / PROD), bound rather
+            than literal.
+        -->
+        <TextBlock Style="{StaticResource TextStyleMonoSmall}"
+                   Text="DEV · v0.1.0-alpha"
+                   HorizontalAlignment="Right"
+                   VerticalAlignment="Bottom"
+                   Margin="0,0,12,8" />
+
+    </Grid>
+</Window>

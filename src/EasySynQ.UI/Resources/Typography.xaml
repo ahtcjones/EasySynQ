@@ -1,0 +1,100 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        Typography tokens. Sizes match the prototype's pixel scale.
+        Line-height is intentionally not centralized here — WPF has no
+        single FontLineHeight knob equivalent to CSS line-height, so we
+        rely on FlowDocument / per-template tweaks where it matters.
+    -->
+
+    <!--
+        FontFamily fallback chains. WPF's comma-separated form parses as an
+        ordered list — the first installed face wins. Segoe UI is a Windows
+        system font; Cascadia Code ships with current Windows but we still
+        fall through to Consolas as a hard-floor monospaced face.
+    -->
+    <FontFamily x:Key="FontFamilyBody">Segoe UI</FontFamily>
+    <FontFamily x:Key="FontFamilyMono">Cascadia Code, Consolas</FontFamily>
+
+    <!-- Body text: 13 / primary text color. -->
+    <Style x:Key="TextStyleBody" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource FontFamilyBody}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+    </Style>
+
+    <!-- Body text, secondary tone. -->
+    <Style x:Key="TextStyleBodyDim" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource FontFamilyBody}" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{StaticResource BrushTextDim}" />
+    </Style>
+
+    <!-- Caption: smaller, secondary tone. Used for inline metadata. -->
+    <Style x:Key="TextStyleCaption" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource FontFamilyBody}" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="{StaticResource BrushTextDim}" />
+    </Style>
+
+    <!--
+        Label: 10 / semibold / faint / uppercase. Used for the info-label,
+        nav-label, sig-detail-label, etc. pattern in the prototype.
+
+        Two CSS effects from the prototype we cannot reproduce cleanly in WPF:
+
+          1. text-transform: uppercase — TextBlock has no CharacterCasing
+             property. We apply Typography.Capitals="AllSmallCaps" as the
+             closest WPF approximation: lowercase letters in the bound text
+             render as small-cap glyphs (when the font supports them, which
+             Segoe UI does), giving an "all caps" reading at the cost of a
+             slight glyph-size variation between letters that were already
+             uppercase and those that were converted. Callers may still pass
+             uppercase strings explicitly when uniform glyph size matters.
+
+          2. letter-spacing: 0.08em — WPF has no tracking property on
+             TextBlock and OpenType features (Typography.*) do not expose
+             generic tracking either. We accept the visual gap rather than
+             route every label through a custom Run pipeline. Revisit only
+             if real screens show the labels look too cramped at 10pt.
+    -->
+    <Style x:Key="TextStyleLabel" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource FontFamilyBody}" />
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource BrushTextFaint}" />
+        <Setter Property="Typography.Capitals" Value="AllSmallCaps" />
+    </Style>
+
+    <!-- Inline monospaced data: hashes, IDs, numeric readings. -->
+    <Style x:Key="TextStyleMono" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource FontFamilyMono}" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+    </Style>
+
+    <!-- Monospaced microcopy: kbd-style hints, hash fragments. -->
+    <Style x:Key="TextStyleMonoSmall" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource FontFamilyMono}" />
+        <Setter Property="FontSize" Value="10" />
+        <Setter Property="Foreground" Value="{StaticResource BrushTextFaint}" />
+    </Style>
+
+    <!-- Page title-class heading. -->
+    <Style x:Key="TextStyleHeading" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource FontFamilyBody}" />
+        <Setter Property="FontSize" Value="20" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+    </Style>
+
+    <!-- Section heading within a page. -->
+    <Style x:Key="TextStyleSubheading" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource FontFamilyBody}" />
+        <Setter Property="FontSize" Value="15" />
+        <Setter Property="FontWeight" Value="Bold" />
+        <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+    </Style>
+
+</ResourceDictionary>

@@ -2,8 +2,31 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:EasySynQ.UI"
+             xmlns:conv="clr-namespace:EasySynQ.UI.Converters"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-         
+        <!--
+            Theme stack. Order matters: each dictionary may reference resources
+            from earlier entries, never later ones. Colors define the palette,
+            Typography pulls brushes from Colors, Spacing is standalone numeric
+            scale, BaseStyles consumes all three.
+        -->
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Resources/Colors.xaml" />
+                <ResourceDictionary Source="Resources/Typography.xaml" />
+                <ResourceDictionary Source="Resources/Spacing.xaml" />
+                <ResourceDictionary Source="Resources/BaseStyles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!--
+                Application-wide value converters. Keyed so that any view
+                can reference them via {StaticResource …} without rewiring
+                its own xmlns. Stateless and thread-safe — a single shared
+                instance per converter is sufficient.
+            -->
+            <conv:BoolToVisibilityConverter x:Key="BoolToVisibility" />
+            <conv:NullOrEmptyToVisibilityConverter x:Key="NullOrEmptyToVisibility" />
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

@@ -230,3 +230,13 @@ Single commit landed everything: the `TempSqliteDb` fix, `scripts/stress-test.ps
 Unchanged. Next chunk is still **Auth service → Signature service → Snapshot service → Shell UI**, with **ADR 0006 (Auth Specifics)** as the next ADR.
 
 ---
+
+## Phase 1 Follow-Ups
+
+Tracked here so design decisions surfaced mid-implementation do not get lost between chunks. These items are *not* in-scope for the chunk where they were first surfaced; the chunk proceeded with a documented gap so we could ship the immediate work without back-pressuring it on the unresolved decision.
+
+- Sign-in audit coverage is incomplete: AuthenticationService writes implicit audit rows via User mutations only on success and failed-known-user paths. Unknown-user, AccountLocked, AccountDisabled, and FirstRunBootstrap outcomes produce zero audit trail. Resolve before Phase 1 close — likely via a new ADR extending AuditAction with sign-in event values and relaxing AuditLogEntry's Before/After shape requirement for event-class rows. Tracked here to avoid losing it.
+
+- Login screen "last successful sign-in" footer hint is deferred. Requires either a PreviousLoginUtc field on User or a DateTime? PreviousLoginUtc on AuthenticationResult.Success. Decide before Phase 1 close.
+
+---
