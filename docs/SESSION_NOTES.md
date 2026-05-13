@@ -279,3 +279,150 @@ Next session entry point: Chunk E3 (Lock Inspector) or Chunk E5 (host wiring). E
 Working tree clean as of this entry.
 
 ---
+
+## 2026-05-13 — Chunk E5 landed (E5.1 through E5.4); E5.5 pending
+
+Phase 1's host wiring is substantially complete. Six commits on master
+since the previous handoff:
+
+- `27b44a4` fix(ui): PulseDrawerView storyboard cannot reference
+  SlideTransform by name from a Style — latent E2.3 bug; see
+  "Smoke verification protocol" note below.
+- `47040d0` Chunk E5.1: introduce Microsoft.Extensions.Hosting; manual
+  DI moved into ConfigureServices.
+- `23802da` Chunk E5.2: Serilog wired as ILogger<T> provider with file
+  and debug sinks. Logs land in %LOCALAPPDATA%\EasySynQ\logs\.
+- `b6a1486` Chunk E5.3: global unhandled-exception handlers
+  (DispatcherUnhandledException, AppDomain.UnhandledException,
+  TaskScheduler.UnobservedTaskException).
+- `5109564` Chunk E5.4a: data services + cross-cutting abstractions
+  registered (IClock, ITemporalResolver, IAuditCorrelationProvider,
+  AddEasySynQDataServices, LoginViewModel, LoginWindow). No
+  entry-point change in this commit.
+- `b0586c6` Chunk E5.4b: LoginWindow as entry point; writable
+  current-user accessor populated from auth result.
+
+Test count: 225/225 across the suite, 5/5 stability at every commit.
+
+What's done in Chunk E5:
+
+- App opens LoginWindow first; on successful authentication, the
+  current-user accessor is populated and MainWindow is resolved
+  (lazy) and shown; LoginWindow closes. Failed auth keeps the user
+  on LoginWindow with the E1 five-arm error display, now visible
+  end-to-end through the real Serilog file.
+- Full dependency graph resolves at host build time: DbContext,
+  audit + temporal interceptors, repositories, UnitOfWork,
+  IAuthenticationService, ISignatureService, the entire data layer.
+- Real ILogger<T> emits land in the file sink with millisecond
+  timestamps, timezone offset, and {SourceContext} attribution.
+- Unhandled exceptions on the dispatcher thread surface to the
+  user via MessageBox; non-dispatcher exceptions log via static
+  Log.Fatal + CloseAndFlush as death-rattle; unobserved task
+  exceptions are observed and logged.
+- New EventIds in use: 1001 (LoginViewModel sign-in failure, E1),
+  2001 (MainShellViewModel nav cancellation, E2), 3001
+  (PulseDrawerViewModel refresh, E2), 5001/5002 (App dispatcher +
+  unobserved task handlers, E5.3), 6001 (App sign-in success,
+  E5.4). The 4xxx range is intentionally unused — reserve for
+  future shell-level events.
+- UiAuditCorrelationProvider (new, src/EasySynQ.UI/Audit/) returns
+  null unconditionally; AuditSaveChangesInterceptor's per-save
+  fallback handles correlation generation. Shape chosen as
+  Phase 1's correct granularity; replacement path to AsyncLocal
+  documented in the type's XML.
+
+What's NOT done — E5.5 still open:
+
+- **E5.5 — EF Core migration check on startup.** The production DB
+  file at %LOCALAPPDATA%\EasySynQ\db\EasySynQ_Master.db is empty
+  on first run; auth currently fails with "no such table: Users"
+  because no migration has been applied. E5.5 applies pending
+  migrations on startup (after host build, before LoginWindow
+  shows). Failed migration must log via the now-real Serilog
+  pipeline and surface via the now-wired global handler, then
+  prevent app launch with a user-visible failure dialog.
+  Reuses GetDatabasePath() helper introduced in E5.4a — single
+  source of truth on the DB path.
+
+Latent E1/E2 bugs surfaced by E5 smoke (worth keeping in mind for
+future sessions):
+
+- **PulseDrawerView storyboard.** Style-scope Storyboard used
+  TargetName="SlideTransform" — illegal in WPF; threw
+  InvalidOperationException on first drawer toggle. Fixed in
+  `27b44a4`. Originated in E2.3.
+- **LoginWindow DialogResult-setting handlers.** Original
+  OnLoginSucceeded and OnBootstrapRequired both set DialogResult
+  before Close(); the setter throws under non-modal Show().
+  Removed in E5.4b. Originated in E1.
+
+**Smoke verification protocol — note for future sessions.** Both
+bugs above were missed by previous sessions' "smoke verified"
+claims because the smoke didn't drive real-host code paths. Tests
+pass, integration tests pin VM-level logic, but Window-code-behind
+paths only fire under production hosting. Going forward: smoke
+verification must drive every reachable user gesture end-to-end
+under the real host, not just confirm that windows render. "Window
+opens cleanly" is necessary but not sufficient.
+
+Phase 1 Follow-Ups (running list — five existing carry over from
+the previous handoff, six newly accumulated during E5):
+
+1. (existing) Sign-in audit coverage incomplete. Unknown-user /
+   locked / disabled / bootstrap branches produce no audit row.
+   E5.4b's new LoginSucceeded hook in App.xaml.cs is the natural
+   place to write the success-path audit row when this is
+   addressed.
+2. (existing) "Last successful sign-in" footer hint deferred —
+   needs PreviousLoginUtc plumbing.
+3. (existing) Navigation events not audited (same audit-pipeline
+   root cause as #1).
+4. (existing) Pulse drawer tile tints use inline alpha-bearing hex
+   literals; promote to named tokens if a second surface needs them.
+5. (newly tracked, role plumbing) Plumb authenticated user's
+   effective role through AuthenticationResult and
+   AuthenticatedUserEventArgs. Today E5.4b passes the literal
+   string "Authenticated User" as the role to SetCurrentUser —
+   placeholder, explicit and obviously-not-real to make a future
+   grep find it. ADR 0006 amendment required to define
+   role-resolution semantics (single role / primary / selected-at-
+   login).
+6. (newly tracked, configuration) Connection string is hard-coded
+   in App.xaml.cs's GetDatabasePath() helper to
+   %LOCALAPPDATA%\EasySynQ\db\EasySynQ_Master.db. Promote to
+   configuration (appsettings.json or in-app Settings flow);
+   requires Microsoft.Extensions.Configuration.Json dependency
+   decision.
+7. (newly tracked, correlation) Replace UiAuditCorrelationProvider's
+   permanent-null implementation with an AsyncLocal-backed scope
+   holder when the first multi-save logical operation arrives
+   (Phase 2 Document Controller is the expected first consumer).
+   Interface unchanged; concrete type gains
+   BeginScope(Guid) → IDisposable that command handlers wrap
+   around their multi-save operations.
+8. (newly tracked, package) EasySynQ.Services'
+   Serilog.Sinks.File 7.0.0 reference is currently inert —
+   pre-staging for snapshot/audit-flush work that hasn't
+   shipped. Do NOT prune as "unused" before the consuming code
+   lands.
+9. (newly tracked, retention) Serilog file sink has no
+   retainedFileCountLimit — log files accumulate indefinitely
+   (one per day). Production deployment needs a retention
+   setting; ~30–60 days is the conventional default.
+10. (newly tracked, log noise) Each user-facing auth failure
+    currently produces three [ERR] lines (two EF Core diagnostic,
+    one VM). Once E5.5 lands migrations the happy-path noise
+    self-resolves; if dev-time noise persists, tighten
+    MinimumLevel.Override to specifically target
+    "Microsoft.EntityFrameworkCore" at Warning.
+
+Next session entry point: Chunk E5.5 (EF Core migration check on
+startup). After E5.5 lands, Chunk E5 is closed and Phase 1's host
+wiring is complete; Phase 2 work (Document Controller is the
+likely starting point per SPEC §9) becomes unblocked.
+
+Working tree clean as of this entry (after the docs handoff commit
+this entry is part of).
+
+---
