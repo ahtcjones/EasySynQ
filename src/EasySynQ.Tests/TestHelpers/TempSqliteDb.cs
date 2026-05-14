@@ -6,6 +6,8 @@ using EasySynQ.Services.Time;
 
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace EasySynQ.Tests.TestHelpers;
@@ -40,6 +42,49 @@ public static class TempSqliteDb
         var resolver = new CurrentTimeTemporalResolver(new SystemClock());
         using var ctx = new EasySynQDbContext(options, resolver);
         ctx.Database.Migrate();
+
+        return (path, options);
+    }
+
+    /// <summary>
+    /// Creates a fresh temp SQLite database and migrates it to a
+    /// specific target migration (inclusive), leaving later migrations
+    /// un-applied. Used by tests that need to set up a "pre-X state"
+    /// data shape and then exercise migration X explicitly.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// The standard <see cref="Create"/> path applies every migration
+    /// in the chain. This variant stops at
+    /// <paramref name="targetMigrationName"/>; the caller can then
+    /// seed test data into the partial schema and call
+    /// <c>ctx.Database.Migrate()</c> on a freshly-opened context to
+    /// apply the remaining migrations under the seeded preconditions.
+    /// </para>
+    /// <para>
+    /// <see cref="IMigrator.Migrate(string)"/> accepts either the
+    /// full timestamped migration name
+    /// (<c>"20260514040551_AddPermissionsAndLinkTables"</c>) or the
+    /// bare class name (<c>"AddPermissionsAndLinkTables"</c>); the
+    /// bare name is friendlier to read in test code and survives
+    /// timestamp drift if a migration is ever regenerated.
+    /// </para>
+    /// </remarks>
+    public static (string Path, DbContextOptions<EasySynQDbContext> Options) CreateMigratedTo(
+        string targetMigrationName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(targetMigrationName);
+
+        var path = NewTempPath();
+
+        var options = new DbContextOptionsBuilder<EasySynQDbContext>()
+            .UseSqlite($"Data Source={path}")
+            .Options;
+
+        var resolver = new CurrentTimeTemporalResolver(new SystemClock());
+        using var ctx = new EasySynQDbContext(options, resolver);
+        var migrator = ctx.GetInfrastructure().GetRequiredService<IMigrator>();
+        migrator.Migrate(targetMigrationName);
 
         return (path, options);
     }
