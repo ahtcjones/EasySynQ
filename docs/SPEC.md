@@ -1,6 +1,6 @@
 # EasySynQ — Comprehensive Coding Project Prompt
 **A Quality Management System for ISO 9001:2015 Compliance**
-**Revision 3.2 · May 2026**
+**Revision 3.3 · May 2026**
 
 ---
 
@@ -13,6 +13,7 @@
 | 3 | May 2026 | Spec amendments after first review pass. Pinned hard-delete audit-log behavior — every hard delete writes a permanent `HardDelete` audit row with a full pre-delete snapshot (§3.5; see ADR 0002). Added a `RequiredSOPs` collection on Part Master as the single authoritative source for which controlled procedures apply to a job, with a compatibility-review cascade when an SOP revision is approved (§5.3, §5.9). Defined the valid evidence types for CAPA effectiveness verification (§5.4). Reserved the purple accent in the UI palette exclusively for cross-cutting linkage affordances — linked records, module surfaces, concession references — never for severity (§4.4). |
 | 3.1 | May 2026 | License-driven dependency swap. Replaced FluentAssertions in §2 with **AwesomeAssertions** (a community fork of FluentAssertions 7 maintained under MIT) after FluentAssertions 8.x shifted to a commercial license in early 2025. API-compatible; no test code changes implied. |
 | 3.2 | May 2026 | Clarified §3.7: `EffectiveFromUtc` may be in the future to support pre-scheduled configuration changes (e.g., a tolerance change that takes effect next Monday). The as-of resolver handles not-yet-active versions naturally; no new state required. |
+| 3.3 | May 2026 | Amended §3.4 Authorization to permission-based with admin-defined role bundles (ADR 0007). Roles are no longer prescribed as a hardcoded list; the Administrator role is reserved for IT-side system administration, and operational roles are admin-created. Per-user permission grants are effective-dated alongside role assignments and role-permission links. |
 
 ---
 
@@ -107,7 +108,7 @@ This accommodates the 3–7 year audit lookback typical for ISO 9001 and custome
 ### 3.4 Security & Data Integrity
 
 - **Authentication:** Local user accounts with salted+hashed passwords (PBKDF2 or Argon2id). No plaintext passwords.
-- **Authorization:** Role-based — at minimum: Operator, Lab Tech, Quality Manager, Auditor (read-only), Administrator. Additional roles per module (e.g., Maintenance Tech).
+- **Authorization:** Permission-based, with named role bundles (ADR 0007). Permissions are the unit of authorization at every call site; roles are admin-defined bundles of permissions. Per-user permission grants (effective-dated) supplement role-derived permissions to support training-and-certification-based authorities outside the user's default role. The system reserves the Administrator role for IT-side operations (creating roles, creating users, assigning permissions, audit-log read); operational permissions are assigned by an administrator to operational roles after first run. Effective dating applies to role assignments, role-permission links, and user-permission grants — historical compliance questions are evaluated against the configuration in effect at the event timestamp (SPEC §3.7).
 - **Digital Signatures:** Identity-based. A "signature" is a record `(UserId, UTC Timestamp, SHA-256 hash of the signed payload, role-at-time-of-sign)`. Never use stored images of signatures.
 - **Audit Trail:** A global `AuditLog` table capturing every insert/update/delete on compliance-critical entities. Captures user, UTC timestamp, entity type, entity id, action, and before/after JSON snapshots of changed fields. Audit log is append-only — never editable from the UI.
 

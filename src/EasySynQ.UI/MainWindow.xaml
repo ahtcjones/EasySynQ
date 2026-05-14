@@ -270,7 +270,7 @@
                             <TextBlock Text="{Binding UserDisplayName}"
                                        FontSize="12"
                                        Foreground="{StaticResource BrushText}" />
-                            <TextBlock Text="{Binding CurrentRoleName}"
+                            <TextBlock Text="{Binding CurrentRoles}"
                                        FontSize="10"
                                        Foreground="{StaticResource BrushTextDim}" />
                         </StackPanel>

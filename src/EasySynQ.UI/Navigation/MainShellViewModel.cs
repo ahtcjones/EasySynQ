@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
+using EasySynQ.Services.Abstractions;
 using EasySynQ.UI.Pulse;
 
 using Microsoft.Extensions.Logging;
@@ -39,26 +40,32 @@ namespace EasySynQ.UI.Navigation;
 public partial class MainShellViewModel : ObservableObject
 {
     private readonly ILogger<MainShellViewModel> _logger;
+    private readonly ICurrentUserAccessor _currentUser;
 
     /// <summary>Constructs the shell view model.</summary>
     /// <param name="logger">Diagnostic logger for the shell.</param>
     /// <param name="pulseDrawer">The Pulse drawer view model the
-    /// shell hosts. Constructed by the caller (Chunk E5 will resolve
-    /// it from the DI host) so this constructor does not own the
-    /// drawer's dependency graph — keeps the shell's own constructor
-    /// stable as the drawer's dependencies evolve, and keeps every
-    /// <see cref="NullLogger{T}"/>-style seam visible in
-    /// <see cref="App"/> where the host wiring lives.</param>
+    /// shell hosts. Constructed by the caller so this constructor
+    /// does not own the drawer's dependency graph.</param>
+    /// <param name="currentUser">Read-only accessor for the
+    /// signed-in user's session snapshot. Backs the topbar user-chip
+    /// bindings (display name, initials, role list); never used for
+    /// authorization decisions per ADR 0007 (those check
+    /// <c>Permissions</c>, which is the data-layer's concern, not the
+    /// shell's).</param>
     /// <exception cref="ArgumentNullException">Thrown when any
     /// argument is <see langword="null"/>.</exception>
     public MainShellViewModel(
         ILogger<MainShellViewModel> logger,
-        PulseDrawerViewModel pulseDrawer)
+        PulseDrawerViewModel pulseDrawer,
+        ICurrentUserAccessor currentUser)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(pulseDrawer);
+        ArgumentNullException.ThrowIfNull(currentUser);
         _logger = logger;
         PulseDrawerViewModel = pulseDrawer;
+        _currentUser = currentUser;
     }
 
     /// <summary>
@@ -123,44 +130,56 @@ public partial class MainShellViewModel : ObservableObject
     public string CurrentSectionLabel => SelectedItem?.Section.ToString() ?? string.Empty;
 
     /// <summary>
-    /// Display name for the topbar's user chip. Dev placeholder for
-    /// E2.2-B — Chunk E5 replaces this with a pass-through read from
-    /// <c>ICurrentUserAccessor.UserDisplayName</c> once the accessor is
-    /// constructor-injected via the host's DI graph.
+    /// Display name for the topbar's user chip. Pass-through read
+    /// from <see cref="ICurrentUserAccessor.DisplayName"/>. Returns
+    /// <see cref="string.Empty"/> in the unauthenticated state per
+    /// the accessor's empty-state contract.
     /// </summary>
     /// <remarks>
-    /// Hardcoded to "M. Rodriguez" so the shell renders the prototype's
-    /// user chip with realistic data during shell development. Do NOT
-    /// add logic that depends on this value being a real signed-in user
-    /// — it is not. Held as an instance auto-property so XAML
-    /// <c>{Binding UserDisplayName}</c> resolves through the DataContext
-    /// without analyzers flagging the member as static (same precedent
-    /// as <see cref="Items"/>).
+    /// <para>
+    /// <b>Change notification.</b> The accessor's properties do not
+    /// implement <see cref="System.ComponentModel.INotifyPropertyChanged"/>,
+    /// so a mid-session mutation (a future sign-out / re-sign-in
+    /// flow) will not push an update to bindings. The current Phase 1
+    /// flow resolves <see cref="MainShellViewModel"/> after sign-in
+    /// (App's lazy <c>MainWindow</c> resolve) and the snapshot is
+    /// fixed for the lifetime of the session per ADR 0007, so the
+    /// missing notification is unobservable. When sign-out arrives in
+    /// a later phase, the VM will need to relay accessor changes; the
+    /// natural shape is to refresh by re-resolving the shell rather
+    /// than wiring INPC through the accessor.
+    /// </para>
     /// </remarks>
-    public string UserDisplayName { get; } = "M. Rodriguez";
+    public string UserDisplayName => _currentUser.DisplayName;
 
     /// <summary>
-    /// Role label for the topbar's user chip. Dev placeholder for E2.2-B
-    /// — same E5 swap path as <see cref="UserDisplayName"/>; will read
-    /// <c>ICurrentUserAccessor.CurrentRoleName</c> once DI is wired.
+    /// Comma-joined role list for the topbar's user chip. Pass-through
+    /// over <see cref="ICurrentUserAccessor.Roles"/>. ADR 0007 makes
+    /// roles a collection (a single user may hold "Plant Manager" and
+    /// "Internal Auditor" simultaneously); the chip subtitle is a
+    /// flat string for layout reasons, so the collection is joined
+    /// with ", " here. Phase 1 only ever produces a single-role
+    /// Administrator, but the join handles any future multi-role
+    /// shape without special-casing. Returns <see cref="string.Empty"/>
+    /// in the unauthenticated state.
     /// </summary>
-    public string CurrentRoleName { get; } = "Quality Manager";
+    /// <remarks>
+    /// Display-only. ADR 0007 forbids role-name authorization checks;
+    /// every authorization gate reads
+    /// <see cref="ICurrentUserAccessor.Permissions"/> instead, and
+    /// gating code never lives in the view-model layer.
+    /// </remarks>
+    public string CurrentRoles => string.Join(", ", _currentUser.Roles);
 
     /// <summary>
     /// Initials rendered inside the user-chip avatar. Derived from
     /// <see cref="UserDisplayName"/>: takes the first character of
     /// each whitespace- or punctuation-separated token, uppercases
     /// it, and truncates to two characters. Returns <c>"??"</c> when
-    /// <see cref="UserDisplayName"/> is empty.
+    /// <see cref="UserDisplayName"/> is empty (the unauthenticated
+    /// state) — the avatar still renders something rather than
+    /// collapsing the chip layout.
     /// </summary>
-    /// <remarks>
-    /// Computed rather than stored so this property tracks
-    /// <see cref="UserDisplayName"/> automatically. The underlying
-    /// display name is the hardcoded E2.2-B dev placeholder; E5
-    /// swaps <see cref="UserDisplayName"/> for an
-    /// <c>ICurrentUserAccessor</c> pass-through and <c>UserInitials</c>
-    /// inherits the change for free.
-    /// </remarks>
     public string UserInitials
     {
         get

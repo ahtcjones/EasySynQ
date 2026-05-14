@@ -1,7 +1,7 @@
 # ADR 0007 — Permission-Based Authorization Model
 
-**Status:** Proposed
-**Date:** 2026-05-13
+**Status:** Accepted
+**Date:** 2026-05-13 (Proposed), 2026-05-14 (Accepted)
 **Supersedes:** None (replaces an uncommitted "Role Resolution" draft of this ADR.)
 **Related:** ADR 0006 (created the bootstrap User + Administrator Role + UserRole rows that this model extends.)
 

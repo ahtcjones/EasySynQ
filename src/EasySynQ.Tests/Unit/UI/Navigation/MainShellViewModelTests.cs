@@ -1,5 +1,6 @@
 using AwesomeAssertions;
 
+using EasySynQ.Tests.TestHelpers;
 using EasySynQ.UI.Navigation;
 using EasySynQ.UI.Placeholders;
 using EasySynQ.UI.Pulse;
@@ -16,6 +17,7 @@ namespace EasySynQ.Tests.Unit.UI.Navigation;
 public class MainShellViewModelTests
 {
     private readonly Mock<ILogger<MainShellViewModel>> _logger = new();
+    private readonly MutableCurrentUserAccessor _currentUser = new();
 
     private static PulseDrawerViewModel NewDrawer() =>
         new(Mock.Of<IPulseSource>(), NullLogger<PulseDrawerViewModel>.Instance);
@@ -26,8 +28,11 @@ public class MainShellViewModelTests
         // The drawer VM is unused by the nav-focused tests in this
         // file — a default-mock IPulseSource behind a fresh drawer
         // satisfies the constructor without changing observable
-        // behavior on any test.
-        return new MainShellViewModel(_logger.Object, NewDrawer());
+        // behavior on any test. The accessor defaults to
+        // unauthenticated (empty strings, empty collections per
+        // ADR 0007); tests that care about the user-chip bindings
+        // populate it explicitly via the protected field.
+        return new MainShellViewModel(_logger.Object, NewDrawer(), _currentUser);
     }
 
     [Fact]
@@ -237,6 +242,69 @@ public class MainShellViewModelTests
 
         sut.CurrentContent.Should().BeSameAs(dirty,
             "rejected nav must leave CurrentContent on the prior dirty VM, not the would-be placeholder");
+    }
+
+    [Fact]
+    public void UserDisplayName_PassesThroughAccessorDisplayName()
+    {
+        _currentUser.UserId = Guid.NewGuid();
+        _currentUser.Username = "mrodriguez";
+        _currentUser.DisplayName = "M. Rodriguez";
+
+        var sut = BuildSut();
+
+        sut.UserDisplayName.Should().Be("M. Rodriguez");
+    }
+
+    [Fact]
+    public void CurrentRoles_CommaJoinsAccessorRolesForChipSubtitle()
+    {
+        _currentUser.UserId = Guid.NewGuid();
+        _currentUser.Roles = ["Plant Manager", "Internal Auditor"];
+
+        var sut = BuildSut();
+
+        sut.CurrentRoles.Should().Be("Plant Manager, Internal Auditor");
+    }
+
+    [Fact]
+    public void CurrentRoles_SingleRole_RendersWithoutTrailingDelimiter()
+    {
+        // Phase 1 reality — Administrator has one role. Join over a
+        // single element must produce just the element, no trailing
+        // comma.
+        _currentUser.UserId = Guid.NewGuid();
+        _currentUser.Roles = ["Administrator"];
+
+        var sut = BuildSut();
+
+        sut.CurrentRoles.Should().Be("Administrator");
+    }
+
+    [Fact]
+    public void UnauthenticatedState_RendersEmptyStringsAndQuestionMarkInitials()
+    {
+        // Default accessor state — unauthenticated. The shell shouldn't
+        // be visible in production until the accessor is populated, but
+        // the bindings must produce safe fallbacks rather than throwing
+        // or rendering "null" literals.
+        var sut = BuildSut();
+
+        sut.UserDisplayName.Should().BeEmpty();
+        sut.CurrentRoles.Should().BeEmpty();
+        sut.UserInitials.Should().Be("??");
+    }
+
+    [Fact]
+    public void UserInitials_DerivesFromAccessorDisplayName()
+    {
+        _currentUser.UserId = Guid.NewGuid();
+        _currentUser.DisplayName = "Jane A. Doe";
+
+        var sut = BuildSut();
+
+        // Tokens "Jane", "A", "Doe" → "JAD" → truncate to 2 → "JA".
+        sut.UserInitials.Should().Be("JA");
     }
 
     /// <summary>
