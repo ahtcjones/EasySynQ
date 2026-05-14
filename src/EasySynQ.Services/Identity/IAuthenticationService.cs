@@ -5,7 +5,11 @@ namespace EasySynQ.Services.Identity;
 /// <summary>
 /// Authenticates local users, manages lockout state, transparently
 /// upgrades stored hashes when the policy iteration count rises, and
-/// provides the first-run bootstrap and change-password flows. All
+/// provides the change-password flow. First-run detection is part of
+/// <see cref="AuthenticateAsync"/> (returns
+/// <see cref="AuthenticationResult.FirstRunBootstrap"/> when no users
+/// exist); first-user creation is owned by
+/// <see cref="EasySynQ.Services.Bootstrap.IBootstrapService"/>. All
 /// behaviors specified by ADR 0006.
 /// </summary>
 /// <remarks>
@@ -44,30 +48,6 @@ public interface IAuthenticationService
     Task<AuthenticationResult> AuthenticateAsync(
         string username,
         string password,
-        CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Creates the first user in the system as an Administrator and
-    /// returns it. Succeeds only when no users exist (per ADR 0006's
-    /// first-run bootstrap design); throws if any user already exists.
-    /// The created user has <see cref="User.MustChangePassword"/> =
-    /// <see langword="false"/> — they just chose the password.
-    /// </summary>
-    /// <param name="username">Desired username for the Administrator.</param>
-    /// <param name="password">Desired password. Must satisfy the policy's
-    /// <see cref="IPasswordPolicy.MinimumLength"/>.</param>
-    /// <param name="displayName">Desired display name.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The created and persisted <see cref="User"/>.</returns>
-    /// <exception cref="ArgumentException">Thrown when any input is
-    /// null/empty/whitespace, or when <paramref name="password"/> is
-    /// shorter than the policy's minimum length.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when at least
-    /// one user already exists — the bootstrap window has closed.</exception>
-    Task<User> CreateBootstrapAdministratorAsync(
-        string username,
-        string password,
-        string displayName,
         CancellationToken cancellationToken);
 
     /// <summary>

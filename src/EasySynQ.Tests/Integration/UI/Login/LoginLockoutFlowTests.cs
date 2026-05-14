@@ -185,25 +185,4 @@ public class LoginLockoutFlowTests : ServiceIntegrationTestBase
             "a fresh VM starts unlatched, and the successful sign-in did nothing to relatch it");
     }
 
-    /// <summary>
-    /// Seeds an enabled user whose stored hash is computed against the
-    /// fast test policy (<see cref="ServiceIntegrationTestBase.TestIterationCount"/>
-    /// PBKDF2 iterations). Mirrors the helper in
-    /// <see cref="AuthenticationServiceTests"/>.
-    /// </summary>
-    private async Task SeedUserAsync(string username, string password)
-    {
-        var hasher = new PasswordHasher(Policy);
-        var hashed = hasher.Hash(password);
-        await using var ctx = NewContext();
-        ctx.Users.Add(new User(
-            id: Guid.NewGuid(),
-            username: username,
-            displayName: username,
-            passwordHash: hashed.Hash,
-            passwordSalt: hashed.Salt,
-            passwordIterationCount: hashed.IterationCount,
-            mustChangePassword: false));
-        await ctx.SaveChangesAsync(Ct);
-    }
 }

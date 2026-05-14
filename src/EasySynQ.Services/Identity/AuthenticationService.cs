@@ -8,7 +8,11 @@ namespace EasySynQ.Services.Identity;
 /// Production <see cref="IAuthenticationService"/> implementing the
 /// behaviors specified by ADR 0006: PBKDF2-SHA256 verification with
 /// silent rehash on policy upgrade, lockout after a configurable number
-/// of consecutive failures, first-run bootstrap, and change-password.
+/// of consecutive failures, first-run detection (returns
+/// <see cref="AuthenticationResult.FirstRunBootstrap"/> when no users
+/// exist; creation of the first user is owned by
+/// <see cref="EasySynQ.Services.Bootstrap.IBootstrapService"/>), and
+/// change-password.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -17,14 +21,6 @@ namespace EasySynQ.Services.Identity;
 /// material is cached for the lifetime of this service instance so the
 /// first "unknown user" call pays the salt + hash construction cost
 /// just once.
-/// </para>
-/// <para>
-/// The bootstrap path creates only the <see cref="User"/> account, not
-/// any associated <see cref="Role"/> or <see cref="UserRole"/>. The
-/// "Administrator" intent is communicated by the surface (this is the
-/// first user; they can do anything), and explicit role assignment is a
-/// separate admin action. This is a deliberate scope choice — the auth
-/// service's responsibility is identity, not authorization.
 /// </para>
 /// </remarks>
 public sealed class AuthenticationService : IAuthenticationService
@@ -137,44 +133,6 @@ public sealed class AuthenticationService : IAuthenticationService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         return new AuthenticationResult.Success(user, user.MustChangePassword);
-    }
-
-    /// <inheritdoc />
-    public async Task<User> CreateBootstrapAdministratorAsync(
-        string username,
-        string password,
-        string displayName,
-        CancellationToken cancellationToken)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(username);
-        ArgumentException.ThrowIfNullOrWhiteSpace(password);
-        ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
-
-        // The bootstrap window is closed once any user exists. The check
-        // intentionally honors the soft-delete filter — a soft-deleted
-        // Administrator does not re-open bootstrap; recovery is a
-        // separate admin/forensic concern.
-        var anyUser = await _users.AnyAsync(cancellationToken);
-        if (anyUser)
-        {
-            throw new InvalidOperationException(
-                "Bootstrap is only available when no users exist; at least one user is already present.");
-        }
-
-        var hashed = _hasher.Hash(password);
-        var user = new User(
-            id: Guid.NewGuid(),
-            username: username.Trim(),
-            displayName: displayName.Trim(),
-            passwordHash: hashed.Hash,
-            passwordSalt: hashed.Salt,
-            passwordIterationCount: hashed.IterationCount,
-            mustChangePassword: false);
-
-        await _users.AddAsync(user, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
-        return user;
     }
 
     /// <inheritdoc />

@@ -64,7 +64,7 @@ public abstract record AuthenticationResult
     /// <summary>
     /// No users exist in the system. The login screen should display the
     /// first-run bootstrap form and call
-    /// <see cref="IAuthenticationService.CreateBootstrapAdministratorAsync"/>
+    /// <see cref="EasySynQ.Services.Bootstrap.IBootstrapService.CreateAdministratorAsync"/>
     /// on submit.
     /// </summary>
     public sealed record FirstRunBootstrap : AuthenticationResult;

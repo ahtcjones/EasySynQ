@@ -25,49 +25,6 @@ public class AuthenticationServiceTests : ServiceIntegrationTestBase
     }
 
     [Fact]
-    public async Task Bootstrap_CreatesAdministrator_AndSubsequentAuthSucceedsAsync()
-    {
-        // Bootstrap.
-        await using (var scope = NewScope())
-        {
-            var auth = scope.ServiceProvider.GetRequiredService<IAuthenticationService>();
-            var admin = await auth.CreateBootstrapAdministratorAsync(
-                username: "admin",
-                password: "bootstrap-pw",
-                displayName: "Administrator",
-                cancellationToken: Ct);
-
-            admin.Username.Should().Be("admin");
-            admin.MustChangePassword.Should().BeFalse();
-        }
-
-        // Subsequent authenticate succeeds against the bootstrap user.
-        await using (var scope = NewScope())
-        {
-            var auth = scope.ServiceProvider.GetRequiredService<IAuthenticationService>();
-            var result = await auth.AuthenticateAsync("admin", "bootstrap-pw", Ct);
-
-            var success = result.Should().BeOfType<AuthenticationResult.Success>().Subject;
-            success.User.Username.Should().Be("admin");
-            success.RequiresPasswordChange.Should().BeFalse();
-        }
-    }
-
-    [Fact]
-    public async Task Bootstrap_OnceAUserExists_ThrowsInvalidOperationAsync()
-    {
-        await SeedUserAsync("first", "password");
-
-        await using var scope = NewScope();
-        var auth = scope.ServiceProvider.GetRequiredService<IAuthenticationService>();
-
-        var act = async () => await auth.CreateBootstrapAdministratorAsync(
-            "second", "password", "Second", Ct);
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*Bootstrap is only available when no users exist*");
-    }
-
-    [Fact]
     public async Task Authenticate_UnknownUsername_ReturnsInvalidCredentialsAsync()
     {
         await SeedUserAsync("alice", "password");
@@ -304,21 +261,4 @@ public class AuthenticationServiceTests : ServiceIntegrationTestBase
         }
     }
 
-    /// <summary>
-    /// Seeds a user with the supplied plaintext password hashed under
-    /// the test policy. Returns the user's id.
-    /// </summary>
-    private async Task<Guid> SeedUserAsync(string username, string password)
-    {
-        var hasher = new PasswordHasher(Policy);
-        var hashed = hasher.Hash(password);
-        var userId = Guid.NewGuid();
-        await using var ctx = NewContext();
-        ctx.Users.Add(new User(
-            userId, username, username,
-            hashed.Hash, hashed.Salt, hashed.IterationCount,
-            mustChangePassword: false));
-        await ctx.SaveChangesAsync(Ct);
-        return userId;
-    }
 }

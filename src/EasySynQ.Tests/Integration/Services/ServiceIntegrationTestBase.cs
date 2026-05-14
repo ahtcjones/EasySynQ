@@ -1,8 +1,10 @@
 using EasySynQ.Data.Context;
 using EasySynQ.Data.Interceptors;
 using EasySynQ.Data.Repositories;
+using EasySynQ.Domain.Entities.Identity;
 using EasySynQ.Services.Abstractions;
 using EasySynQ.Services.Audit;
+using EasySynQ.Services.Bootstrap;
 using EasySynQ.Services.Identity;
 using EasySynQ.Services.Signatures;
 using EasySynQ.Services.Time;
@@ -10,6 +12,7 @@ using EasySynQ.Tests.TestHelpers;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 
 using Xunit;
 
@@ -117,10 +120,17 @@ public abstract class ServiceIntegrationTestBase : IDisposable
         services.AddScoped<StandardFieldsInterceptor>();
         services.AddScoped<AuditSaveChangesInterceptor>();
 
-        // Identity & signature services.
+        // ILogger<T> for services that emit structured logs
+        // (BootstrapService — first Services consumer). NullLogger
+        // backing under default registration; tests don't assert on
+        // log output but the DI graph must resolve.
+        services.AddLogging();
+
+        // Identity, bootstrap & signature services.
         services.AddSingleton(Policy);
         services.AddSingleton<IPasswordHasher>(new PasswordHasher(Policy));
         services.AddScoped<IAuthenticationService, AuthenticationService>();
+        services.AddScoped<IBootstrapService, BootstrapService>();
         services.AddScoped<ISignatureService, SignatureService>();
 
         // We need a temporary singleton-only provider to resolve the
@@ -190,6 +200,31 @@ public abstract class ServiceIntegrationTestBase : IDisposable
 
     /// <summary>Current test's cancellation token.</summary>
     protected static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    /// <summary>
+    /// Seeds a single user with the supplied plaintext password hashed
+    /// under the test <see cref="Policy"/>. Returns the new user's id.
+    /// Shared seeding helper for service-tier tests that need a
+    /// pre-existing user (auth + bootstrap suites both consume it).
+    /// </summary>
+    /// <param name="username">Username; used for both the
+    /// <see cref="User.Username"/> and <see cref="User.DisplayName"/>
+    /// fields.</param>
+    /// <param name="password">Plaintext password to hash.</param>
+    /// <returns>The persisted user's id.</returns>
+    protected async Task<Guid> SeedUserAsync(string username, string password)
+    {
+        var hasher = new PasswordHasher(Policy);
+        var hashed = hasher.Hash(password);
+        var userId = Guid.NewGuid();
+        await using var ctx = NewContext();
+        ctx.Users.Add(new User(
+            userId, username, username,
+            hashed.Hash, hashed.Salt, hashed.IterationCount,
+            mustChangePassword: false));
+        await ctx.SaveChangesAsync(Ct);
+        return userId;
+    }
 
     /// <inheritdoc />
     public void Dispose()

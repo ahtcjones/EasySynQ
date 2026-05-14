@@ -2,6 +2,7 @@ using EasySynQ.Data.Context;
 using EasySynQ.Data.Interceptors;
 using EasySynQ.Data.Repositories;
 using EasySynQ.Services.Abstractions;
+using EasySynQ.Services.Bootstrap;
 using EasySynQ.Services.Identity;
 using EasySynQ.Services.Signatures;
 
@@ -84,6 +85,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IPasswordPolicy, PasswordPolicy>();
         services.AddSingleton<IPasswordHasher, PasswordHasher>();
         services.AddScoped<IAuthenticationService, AuthenticationService>();
+        services.AddScoped<IBootstrapService, BootstrapService>();
         services.AddScoped<ISignatureService, SignatureService>();
 
         return services;
