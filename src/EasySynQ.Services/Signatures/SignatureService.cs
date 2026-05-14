@@ -57,13 +57,27 @@ public sealed class SignatureService : ISignatureService
         // Snapshot the role NOW. The Signature carries this string for
         // the lifetime of the row; later changes to the user's
         // assignments do not retroactively change what they signed as.
-        var roleSnapshot = _currentUser.CurrentRoleName;
-        if (string.IsNullOrWhiteSpace(roleSnapshot))
+        //
+        // ADR 0007 made Roles a collection on ICurrentUserAccessor.
+        // Phase 1 SignatureService requires exactly one role on the
+        // current user — the bootstrap Administrator has one role and
+        // is the only user produced by Phase 1. Multi-role users
+        // (Plant Manager + Internal Auditor, etc.) require a
+        // "sign-as-which-role" UX that has not yet been designed; the
+        // open Phase 1 Follow-Up will land that ADR when the first
+        // signature-consuming feature (Phase 2 Document Controller) is
+        // built. Throwing here instead of papering over with .First()
+        // surfaces the gap loudly at the first multi-role signing
+        // attempt.
+        if (_currentUser.Roles.Count != 1)
         {
             throw new InvalidOperationException(
-                "Cannot sign without a current role: ICurrentUserAccessor.CurrentRoleName is empty. " +
-                "Resolve the user's effective-dated role assignment before calling SignAsync.");
+                $"Cannot sign: current user holds {_currentUser.Roles.Count} role(s), " +
+                "but Phase 1 SignatureService requires exactly one role to capture as " +
+                "RoleAtTimeOfSign. The 'sign as which role' UX for multi-role users is a " +
+                "Phase 2 design concern tracked as a Phase 1 Follow-Up.");
         }
+        var roleSnapshot = _currentUser.Roles.First();
 
         var payloadHash = ComputePayloadHash(canonicalPayload);
 

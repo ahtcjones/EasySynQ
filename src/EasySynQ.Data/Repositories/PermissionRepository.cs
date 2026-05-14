@@ -71,4 +71,26 @@ public class PermissionRepository : Repository<Permission, Guid>, IPermissionRep
         // Union already deduplicates server-side — no Distinct() needed.
         return await rolePath.Union(directPath).ToListAsync(cancellationToken);
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<Permission>> GetByNamesAsync(
+        IReadOnlyCollection<string> names,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(names);
+
+        if (names.Count == 0)
+        {
+            return [];
+        }
+
+        // The soft-delete filter on Permissions is honored implicitly
+        // (no IgnoreQueryFilters here) — soft-deleted permission rows
+        // would not be in the active catalog and shouldn't surface to
+        // a "lookup by name" caller. Contains over a small known set
+        // translates to a SQL IN clause.
+        return await Context.Permissions
+            .Where(p => names.Contains(p.Name))
+            .ToListAsync(cancellationToken);
+    }
 }

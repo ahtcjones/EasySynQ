@@ -6,13 +6,11 @@ namespace EasySynQ.Services.Identity;
 
 /// <summary>
 /// Production <see cref="IAuthenticationService"/> implementing the
-/// behaviors specified by ADR 0006: PBKDF2-SHA256 verification with
+/// behaviors specified by ADR 0006 (PBKDF2-SHA256 verification with
 /// silent rehash on policy upgrade, lockout after a configurable number
-/// of consecutive failures, first-run detection (returns
-/// <see cref="AuthenticationResult.FirstRunBootstrap"/> when no users
-/// exist; creation of the first user is owned by
-/// <see cref="EasySynQ.Services.Bootstrap.IBootstrapService"/>), and
-/// change-password.
+/// of consecutive failures, first-run detection, and change-password)
+/// and ADR 0007 (success-path role + permission resolution captured
+/// at sign-in as the session-long snapshot).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -22,10 +20,21 @@ namespace EasySynQ.Services.Identity;
 /// first "unknown user" call pays the salt + hash construction cost
 /// just once.
 /// </para>
+/// <para>
+/// <b>ADR 0007.</b> The success path captures
+/// <see cref="IClock.UtcNow"/> once, immediately before the role and
+/// permission resolution calls, and uses the same instant for both. The
+/// captured roles and permissions populate
+/// <see cref="AuthenticationResult.Success"/> for the caller (the UI
+/// flow) to pass through to
+/// <see cref="IWritableCurrentUserAccessor.SetCurrentUser"/>.
+/// </para>
 /// </remarks>
 public sealed class AuthenticationService : IAuthenticationService
 {
     private readonly IUserRepository _users;
+    private readonly IUserRoleRepository _userRoles;
+    private readonly IPermissionRepository _permissions;
     private readonly IPasswordHasher _hasher;
     private readonly IPasswordPolicy _policy;
     private readonly IUnitOfWork _unitOfWork;
@@ -36,17 +45,23 @@ public sealed class AuthenticationService : IAuthenticationService
     /// <summary>Constructs the service over its dependencies.</summary>
     public AuthenticationService(
         IUserRepository users,
+        IUserRoleRepository userRoles,
+        IPermissionRepository permissions,
         IPasswordHasher hasher,
         IPasswordPolicy policy,
         IUnitOfWork unitOfWork,
         IClock clock)
     {
         ArgumentNullException.ThrowIfNull(users);
+        ArgumentNullException.ThrowIfNull(userRoles);
+        ArgumentNullException.ThrowIfNull(permissions);
         ArgumentNullException.ThrowIfNull(hasher);
         ArgumentNullException.ThrowIfNull(policy);
         ArgumentNullException.ThrowIfNull(unitOfWork);
         ArgumentNullException.ThrowIfNull(clock);
         _users = users;
+        _userRoles = userRoles;
+        _permissions = permissions;
         _hasher = hasher;
         _policy = policy;
         _unitOfWork = unitOfWork;
@@ -132,7 +147,16 @@ public sealed class AuthenticationService : IAuthenticationService
         user.RegisterSuccessfulLogin(now);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
-        return new AuthenticationResult.Success(user, user.MustChangePassword);
+        // ADR 0007 — capture the session-long role + permission
+        // snapshot at the sign-in instant. Both lookups use the same
+        // `now` value so a role assignment that expires precisely at
+        // `now` is treated consistently in both queries. The session
+        // is fixed for its duration: a mid-session role or permission
+        // change takes effect at the next sign-in (ADR 0007 §Snapshot).
+        var roles = await _userRoles.GetEffectiveRoleNamesAsync(user.Id, now, cancellationToken);
+        var permissions = await _permissions.GetEffectivePermissionNamesForUserAsync(user.Id, now, cancellationToken);
+
+        return new AuthenticationResult.Success(user, user.MustChangePassword, roles, permissions);
     }
 
     /// <inheritdoc />

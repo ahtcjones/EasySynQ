@@ -21,8 +21,8 @@ public class SignatureServiceTests : ServiceIntegrationTestBase
     {
         var userId = Guid.NewGuid();
         CurrentUser.UserId = userId;
-        CurrentUser.UserDisplayName = "M. Rodriguez";
-        CurrentUser.CurrentRoleName = "QualityManager";
+        CurrentUser.DisplayName = "M. Rodriguez";
+        CurrentUser.Roles = ["QualityManager"];
 
         const string payload = "doc:DR-2026-001:v3";
         var expectedHash = Sha256Lower(payload);
@@ -49,7 +49,7 @@ public class SignatureServiceTests : ServiceIntegrationTestBase
     public async Task Verify_ReturnsTrue_ForOriginalPayload_AndFalse_ForModifiedAsync()
     {
         CurrentUser.UserId = Guid.NewGuid();
-        CurrentUser.CurrentRoleName = "LabTech";
+        CurrentUser.Roles = ["LabTech"];
 
         Signature signature;
         await using (var scope = NewScope())
@@ -70,7 +70,7 @@ public class SignatureServiceTests : ServiceIntegrationTestBase
     public async Task Sign_WithNoCurrentUser_ThrowsInvalidOperationAsync()
     {
         // CurrentUser default state — UserId is null.
-        CurrentUser.CurrentRoleName = "QualityManager";
+        CurrentUser.Roles = ["QualityManager"];
 
         await using var scope = NewScope();
         var sig = scope.ServiceProvider.GetRequiredService<ISignatureService>();
@@ -81,24 +81,43 @@ public class SignatureServiceTests : ServiceIntegrationTestBase
     }
 
     [Fact]
-    public async Task Sign_WithNoCurrentRole_ThrowsInvalidOperationAsync()
+    public async Task Sign_WithZeroRoles_ThrowsInvalidOperationAsync()
     {
         CurrentUser.UserId = Guid.NewGuid();
-        CurrentUser.CurrentRoleName = string.Empty;
+        CurrentUser.Roles = [];
 
         await using var scope = NewScope();
         var sig = scope.ServiceProvider.GetRequiredService<ISignatureService>();
 
         var act = async () => await sig.SignAsync("X", "Y", "payload", Ct);
         await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*Cannot sign without a current role*");
+            .WithMessage("*current user holds 0 role*");
+    }
+
+    [Fact]
+    public async Task Sign_WithMultipleRoles_ThrowsInvalidOperationAsync()
+    {
+        // ADR 0007 admits multi-role users, but Phase 1 SignatureService
+        // has no "sign-as-which-role" UX yet (Phase 1 Follow-Up tracks
+        // the future ADR). Throwing here surfaces the gap loudly the
+        // first time a multi-role user attempts to sign, rather than
+        // silently picking an arbitrary role.
+        CurrentUser.UserId = Guid.NewGuid();
+        CurrentUser.Roles = ["QualityManager", "InternalAuditor"];
+
+        await using var scope = NewScope();
+        var sig = scope.ServiceProvider.GetRequiredService<ISignatureService>();
+
+        var act = async () => await sig.SignAsync("X", "Y", "payload", Ct);
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*current user holds 2 role*");
     }
 
     [Fact]
     public async Task Sign_WritesAuditLogEntry_AndInterceptorPipelineFiresAsync()
     {
         CurrentUser.UserId = Guid.NewGuid();
-        CurrentUser.CurrentRoleName = "QualityManager";
+        CurrentUser.Roles = ["QualityManager"];
 
         Signature signature;
         await using (var scope = NewScope())
@@ -125,7 +144,7 @@ public class SignatureServiceTests : ServiceIntegrationTestBase
     {
         // Set the current role to "QualityManager" and sign.
         CurrentUser.UserId = Guid.NewGuid();
-        CurrentUser.CurrentRoleName = "QualityManager";
+        CurrentUser.Roles = ["QualityManager"];
 
         Signature signature;
         await using (var scope = NewScope())
@@ -134,10 +153,11 @@ public class SignatureServiceTests : ServiceIntegrationTestBase
             signature = await sig.SignAsync("CoC", "J-2026-0847", "release-payload", Ct);
         }
 
-        // Mutate the current user's role AFTER signing — simulates the
-        // user moving to a different role (or wearing a different hat
-        // for a later operation).
-        CurrentUser.CurrentRoleName = "Auditor";
+        // Mutate the current user's roles AFTER signing — simulates the
+        // session-snapshot accessor being repopulated for a different
+        // sign-in. The captured RoleAtTimeOfSign on the persisted row
+        // must not move.
+        CurrentUser.Roles = ["Auditor"];
 
         // Reload the signature from the DB and confirm the stored
         // role is the role-at-time-of-sign, NOT the current value.

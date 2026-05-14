@@ -279,11 +279,13 @@ public partial class BootstrapViewModel : ObservableObject
         IsCreating = true;
         try
         {
-            var user = await _service
+            var result = await _service
                 .CreateAdministratorAsync(Username, _password, DisplayName, cancellationToken)
                 .ConfigureAwait(true);
 
-            BootstrapSucceeded?.Invoke(this, new BootstrapSucceededEventArgs(user));
+            BootstrapSucceeded?.Invoke(
+                this,
+                new BootstrapSucceededEventArgs(result.Administrator, result.Roles, result.Permissions));
         }
         catch (OperationCanceledException)
         {

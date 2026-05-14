@@ -191,7 +191,11 @@ public partial class LoginViewModel : ObservableObject
                     LockoutCountdownDisplay = null;
                     LoginSucceeded?.Invoke(
                         this,
-                        new AuthenticatedUserEventArgs(success.User, success.RequiresPasswordChange));
+                        new AuthenticatedUserEventArgs(
+                            success.User,
+                            success.RequiresPasswordChange,
+                            success.Roles,
+                            success.Permissions));
                     break;
 
                 case AuthenticationResult.InvalidCredentials:

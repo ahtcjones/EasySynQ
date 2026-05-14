@@ -24,18 +24,26 @@ public sealed class FixedClock : IClock
 /// <summary>
 /// Mutable <see cref="ICurrentUserAccessor"/> for tests. Defaults to
 /// unauthenticated (<see cref="UserId"/> = <see langword="null"/>,
-/// display name empty).
+/// strings empty, collections empty per the ADR 0007 empty-state
+/// contract). Tests set whichever fields they need before exercising
+/// the service under test.
 /// </summary>
 public sealed class MutableCurrentUserAccessor : ICurrentUserAccessor
 {
     /// <inheritdoc cref="ICurrentUserAccessor.UserId"/>
     public Guid? UserId { get; set; }
 
-    /// <inheritdoc cref="ICurrentUserAccessor.UserDisplayName"/>
-    public string UserDisplayName { get; set; } = string.Empty;
+    /// <inheritdoc cref="ICurrentUserAccessor.Username"/>
+    public string Username { get; set; } = string.Empty;
 
-    /// <inheritdoc cref="ICurrentUserAccessor.CurrentRoleName"/>
-    public string CurrentRoleName { get; set; } = string.Empty;
+    /// <inheritdoc cref="ICurrentUserAccessor.DisplayName"/>
+    public string DisplayName { get; set; } = string.Empty;
+
+    /// <inheritdoc cref="ICurrentUserAccessor.Roles"/>
+    public IReadOnlyCollection<string> Roles { get; set; } = [];
+
+    /// <inheritdoc cref="ICurrentUserAccessor.Permissions"/>
+    public IReadOnlyCollection<string> Permissions { get; set; } = [];
 }
 
 /// <summary>

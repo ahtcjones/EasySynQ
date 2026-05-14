@@ -649,14 +649,13 @@ public partial class App : Application
     /// in that gap and race the pending MainWindow show.</item>
     /// </list>
     /// <para>
-    /// <b>Role-name placeholder.</b> The literal <c>"Authenticated User"</c>
-    /// string is a deliberate placeholder until the real role-resolution
-    /// design lands (Phase 1 Follow-Up: plumb the authenticated user's
-    /// effective role through <see cref="AuthenticationResult.Success"/>
-    /// and <c>AuthenticatedUserEventArgs</c>; ADR 0006 amendment
-    /// required to define semantics — single role / primary role /
-    /// selected-at-login). Grep for the literal string to find both
-    /// this call site and the future replacement point.
+    /// <b>Roles + permissions plumbing (ADR 0007).</b> The role and
+    /// permission snapshots arrive in
+    /// <paramref name="args"/> already resolved by the auth service at
+    /// sign-in time and are passed verbatim to
+    /// <see cref="IWritableCurrentUserAccessor.SetCurrentUser"/>. The
+    /// session-long accessor state is fixed at this call site; no
+    /// further re-resolution happens for the lifetime of the session.
     /// </para>
     /// </remarks>
     private static void OnLoginSucceeded(
@@ -666,8 +665,13 @@ public partial class App : Application
         ILogger<App> logger,
         AuthenticatedUserEventArgs args)
     {
-        accessor.SetCurrentUser(args.User, "Authenticated User");
-        LogSignInSucceeded(logger, args.User.Username);
+        accessor.SetCurrentUser(
+            args.User.Id,
+            args.User.Username,
+            args.User.DisplayName,
+            args.Roles,
+            args.Permissions);
+        LogSignInSucceeded(logger, args.User.Username, args.Roles, args.Permissions);
 
         var mainWindow = host.Services.GetRequiredService<MainWindow>();
         mainWindow.Show();
@@ -679,13 +683,21 @@ public partial class App : Application
     /// transition. Fires once per app session (until sign-out / re-login
     /// flows arrive). The matching failure emit is
     /// <see cref="LoginViewModel"/>'s <c>LogSignInSystemError</c>
-    /// (EventId 1001).
+    /// (EventId 1001). The <c>{@Roles}</c> and <c>{@Permissions}</c>
+    /// destructuring prefixes carry the session-long ADR 0007 snapshot
+    /// as structured collections so log-analysis tools see the names,
+    /// not just type metadata; the file sink renders them as readable
+    /// JSON-style arrays inline.
     /// </summary>
     [LoggerMessage(
         EventId = 6001,
         Level = LogLevel.Information,
-        Message = "User {Username} signed in successfully.")]
-    private static partial void LogSignInSucceeded(ILogger<App> logger, string username);
+        Message = "User {Username} signed in successfully. Roles: {@Roles}. Permissions: {@Permissions}.")]
+    private static partial void LogSignInSucceeded(
+        ILogger<App> logger,
+        string username,
+        IReadOnlyCollection<string> roles,
+        IReadOnlyCollection<string> permissions);
 
     /// <summary>
     /// Detects whether the application is in the first-run bootstrap
@@ -757,13 +769,13 @@ public partial class App : Application
     /// MainWindow.Show-before-Close requirements).
     /// </summary>
     /// <remarks>
-    /// <b>Role-name placeholder.</b> Uses the same
-    /// <c>"Authenticated User"</c> placeholder as
-    /// <see cref="OnLoginSucceeded"/>. We know the bootstrap user is
-    /// Administrator, but mirroring the placeholder keeps the two
-    /// transition paths consistent under the same Phase 1 Follow-Up
-    /// for role plumbing. Grep for the literal string to find both
-    /// call sites at the time of the future replacement.
+    /// <b>Roles + permissions plumbing (ADR 0007).</b>
+    /// <see cref="BootstrapSucceededEventArgs"/> arrives with the
+    /// snapshots returned by
+    /// <see cref="IBootstrapService.CreateAdministratorAsync"/> — the
+    /// canonical <c>["Administrator"]</c> role and the eleven Phase 1
+    /// system permissions. Passed verbatim to the accessor and to the
+    /// log emit.
     /// </remarks>
     private static void OnBootstrapSucceeded(
         IHost host,
@@ -772,8 +784,13 @@ public partial class App : Application
         ILogger<App> logger,
         BootstrapSucceededEventArgs args)
     {
-        accessor.SetCurrentUser(args.Administrator, "Authenticated User");
-        LogBootstrapSucceeded(logger, args.Administrator.Username);
+        accessor.SetCurrentUser(
+            args.Administrator.Id,
+            args.Administrator.Username,
+            args.Administrator.DisplayName,
+            args.Roles,
+            args.Permissions);
+        LogBootstrapSucceeded(logger, args.Administrator.Username, args.Roles, args.Permissions);
 
         var mainWindow = host.Services.GetRequiredService<MainWindow>();
         mainWindow.Show();
@@ -813,13 +830,19 @@ public partial class App : Application
     /// transition. Fires once per app session (the bootstrap window
     /// is single-use per install). The matching service-tier emit is
     /// <see cref="BootstrapService"/>'s <c>LogBootstrapCompleted</c>
-    /// (EventId 7001).
+    /// (EventId 7001). Carries the session-long ADR 0007 snapshot via
+    /// destructured <c>{@Roles}</c> and <c>{@Permissions}</c> — same
+    /// shape as <see cref="LogSignInSucceeded"/>.
     /// </summary>
     [LoggerMessage(
         EventId = 6004,
         Level = LogLevel.Information,
-        Message = "Bootstrap completed; signing in administrator {Username}.")]
-    private static partial void LogBootstrapSucceeded(ILogger<App> logger, string username);
+        Message = "Bootstrap completed; signing in administrator {Username}. Roles: {@Roles}. Permissions: {@Permissions}.")]
+    private static partial void LogBootstrapSucceeded(
+        ILogger<App> logger,
+        string username,
+        IReadOnlyCollection<string> roles,
+        IReadOnlyCollection<string> permissions);
 
     /// <summary>
     /// Source-generated emit for the bootstrap idempotency-guard

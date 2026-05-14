@@ -46,4 +46,32 @@ public interface IPermissionRepository : IRepository<Permission, Guid>
         Guid userId,
         DateTime asOfUtc,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns the <see cref="Permission"/> entities whose
+    /// <see cref="Permission.Name"/> appears in <paramref name="names"/>.
+    /// Honors the soft-delete filter (soft-deleted permission rows are
+    /// excluded). Permissions present in <paramref name="names"/> but
+    /// not in the catalog are simply absent from the result — the
+    /// method does not throw on unknown names.
+    /// </summary>
+    /// <remarks>
+    /// Primary Phase 1 consumer is the bootstrap path, which fetches
+    /// the eleven seeded system permissions by
+    /// <see cref="EasySynQ.Domain.PermissionNames"/>.<c>All</c> to
+    /// construct the Administrator role's
+    /// <see cref="RolePermission"/> link rows. The shape generalizes
+    /// to any "lookup permissions by code-side constant name" need
+    /// (admin UI permission picker, future grants, etc.).
+    /// </remarks>
+    /// <param name="names">Permission names to look up. May be empty;
+    /// must not be <see langword="null"/>.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The matching <see cref="Permission"/> entities; possibly
+    /// empty, never <see langword="null"/>.</returns>
+    /// <exception cref="ArgumentNullException">Thrown when
+    /// <paramref name="names"/> is <see langword="null"/>.</exception>
+    Task<IReadOnlyList<Permission>> GetByNamesAsync(
+        IReadOnlyCollection<string> names,
+        CancellationToken cancellationToken);
 }

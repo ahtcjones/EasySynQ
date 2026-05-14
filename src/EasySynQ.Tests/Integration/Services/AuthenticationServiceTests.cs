@@ -1,6 +1,7 @@
 using AwesomeAssertions;
 
 using EasySynQ.Domain.Entities.Identity;
+using EasySynQ.Domain.ValueObjects;
 using EasySynQ.Services.Abstractions;
 using EasySynQ.Services.Identity;
 
@@ -205,6 +206,71 @@ public class AuthenticationServiceTests : ServiceIntegrationTestBase
             u.PasswordHash.Should().NotBe(lowHashed.Hash);
             u.PasswordSalt.Should().NotBe(lowHashed.Salt);
         }
+    }
+
+    [Fact]
+    public async Task Authenticate_Success_PopulatesRolesAndPermissionsSnapshotsAsync()
+    {
+        // ADR 0007: the auth-service success path captures
+        // _clock.UtcNow once and uses it for both role-name and
+        // permission-name resolution. The two collections become the
+        // session-long snapshot on Success.
+        var userId = await SeedUserAsync("alice", "password");
+
+        // Wire up an open-ended role + role-permission + direct user
+        // permission for `alice`. The standard-fields interceptor
+        // requires a non-null current user to stamp CreatedBy on the
+        // new rows; populate the mutable accessor with a placeholder
+        // user-id for the seed pass only.
+        var roleId = Guid.NewGuid();
+        var rolePerm = new Permission(Guid.NewGuid(), "Doc.Approve", "approve docs", "Document");
+        var directPerm = new Permission(Guid.NewGuid(), "Audit.Inspect", "audit inspect", "System");
+        var period = new EffectiveDateRange(Clock.UtcNow.AddMinutes(-1), null);
+
+        CurrentUser.UserId = Guid.NewGuid();
+        await using (var ctx = NewContext())
+        {
+            ctx.Roles.Add(new Role(roleId, "QualityManager", "QM role."));
+            ctx.Permissions.AddRange(rolePerm, directPerm);
+            ctx.UserRoles.Add(new UserRole(Guid.NewGuid(), userId, roleId, period));
+            ctx.RolePermissions.Add(new RolePermission(Guid.NewGuid(), roleId, rolePerm.Id, period));
+            ctx.UserPermissions.Add(new UserPermission(Guid.NewGuid(), userId, directPerm.Id, period));
+            await ctx.SaveChangesAsync(Ct);
+        }
+        // Reset for the auth pass — auth must work with unauthenticated
+        // accessor state (the user is signing in; no identity yet).
+        CurrentUser.UserId = null;
+
+        await using var scope = NewScope();
+        var auth = scope.ServiceProvider.GetRequiredService<IAuthenticationService>();
+        var result = await auth.AuthenticateAsync("alice", "password", Ct);
+
+        var success = result.Should().BeOfType<AuthenticationResult.Success>().Subject;
+        success.User.Username.Should().Be("alice");
+        success.Roles.Should().BeEquivalentTo("QualityManager");
+        // Union of role-derived ("Doc.Approve") and direct
+        // ("Audit.Inspect") grants, deduplicated.
+        success.Permissions.Should().BeEquivalentTo("Doc.Approve", "Audit.Inspect");
+    }
+
+    [Fact]
+    public async Task Authenticate_SuccessForUserWithNoRolesOrPermissions_ReturnsEmptySnapshotsAsync()
+    {
+        // The SeedUserAsync helper creates a bare User row — no
+        // UserRole, no UserPermission. Roles and Permissions on
+        // Success must be empty (not null), matching the empty-state
+        // contract on ICurrentUserAccessor.
+        await SeedUserAsync("alice", "password");
+
+        await using var scope = NewScope();
+        var auth = scope.ServiceProvider.GetRequiredService<IAuthenticationService>();
+        var result = await auth.AuthenticateAsync("alice", "password", Ct);
+
+        var success = result.Should().BeOfType<AuthenticationResult.Success>().Subject;
+        success.Roles.Should().NotBeNull();
+        success.Roles.Should().BeEmpty();
+        success.Permissions.Should().NotBeNull();
+        success.Permissions.Should().BeEmpty();
     }
 
     [Fact]

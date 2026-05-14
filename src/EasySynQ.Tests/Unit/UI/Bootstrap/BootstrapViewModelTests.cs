@@ -39,13 +39,16 @@ public class BootstrapViewModelTests
             mustChangePassword: false);
 
     [Fact]
-    public async Task CreateAsync_HappyPath_PersistsUserAndRaisesBootstrapSucceededAsync()
+    public async Task CreateAsync_HappyPath_PersistsUserAndRaisesBootstrapSucceededWithSnapshotsAsync()
     {
         var sut = BuildSut();
         var user = NewUser("admin");
+        IReadOnlyCollection<string> roles = ["Administrator"];
+        IReadOnlyCollection<string> permissions =
+            ["System.Administer", "Role.Create", "User.Create", "AuditLog.Read"];
         _service.Setup(s => s.CreateAdministratorAsync(
                 "admin", "valid-password", "Administrator", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(user);
+            .ReturnsAsync(new BootstrapResult(user, roles, permissions));
 
         BootstrapSucceededEventArgs? raised = null;
         var raisedCount = 0;
@@ -61,6 +64,11 @@ public class BootstrapViewModelTests
         raisedCount.Should().Be(1);
         raised.Should().NotBeNull();
         raised!.Administrator.Should().BeSameAs(user);
+        // ADR 0007: roles + permissions flow through verbatim from
+        // BootstrapResult to the event args so the App handler can
+        // populate the writable accessor without re-resolving.
+        raised.Roles.Should().BeSameAs(roles);
+        raised.Permissions.Should().BeSameAs(permissions);
         idempotencyRaised.Should().BeFalse();
         sut.ErrorMessage.Should().BeNull();
         sut.HasError.Should().BeFalse();

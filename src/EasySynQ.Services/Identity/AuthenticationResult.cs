@@ -33,8 +33,16 @@ public abstract record AuthenticationResult
     /// user; <see cref="RequiresPasswordChange"/> mirrors
     /// <c>User.MustChangePassword</c> at the moment of the success and
     /// is the cue for the UI to route to the change-password screen.
+    /// <see cref="Roles"/> and <see cref="Permissions"/> are the
+    /// session-long snapshots resolved at sign-in (ADR 0007) — both
+    /// are non-null but may be empty if the user holds no in-effect
+    /// roles or permissions.
     /// </summary>
-    public sealed record Success(User User, bool RequiresPasswordChange) : AuthenticationResult;
+    public sealed record Success(
+        User User,
+        bool RequiresPasswordChange,
+        IReadOnlyCollection<string> Roles,
+        IReadOnlyCollection<string> Permissions) : AuthenticationResult;
 
     /// <summary>
     /// Username unknown OR password wrong. The two cases are

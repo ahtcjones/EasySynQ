@@ -45,12 +45,18 @@ public class LoginViewModelTests
             mustChangePassword: false);
 
     [Fact]
-    public async Task SignInAsync_ValidCredentials_RaisesLoginSucceededWithUserAsync()
+    public async Task SignInAsync_ValidCredentials_RaisesLoginSucceededWithUserAndSnapshotsAsync()
     {
         var sut = BuildSut();
         var user = NewUser();
+        IReadOnlyCollection<string> expectedRoles = ["Quality Manager", "Internal Auditor"];
+        IReadOnlyCollection<string> expectedPermissions = ["Document.Approve", "AuditLog.Read"];
         _auth.Setup(a => a.AuthenticateAsync("alice", "pw", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AuthenticationResult.Success(user, RequiresPasswordChange: false));
+            .ReturnsAsync(new AuthenticationResult.Success(
+                user,
+                RequiresPasswordChange: false,
+                Roles: expectedRoles,
+                Permissions: expectedPermissions));
 
         AuthenticatedUserEventArgs? raised = null;
         var raisedCount = 0;
@@ -63,6 +69,11 @@ public class LoginViewModelTests
         raised.Should().NotBeNull();
         raised!.User.Should().BeSameAs(user);
         raised.RequiresPasswordChange.Should().BeFalse();
+        // ADR 0007: the role and permission snapshots flow through
+        // verbatim from AuthenticationResult.Success to the event args
+        // so the App handler can populate the writable accessor.
+        raised.Roles.Should().BeSameAs(expectedRoles);
+        raised.Permissions.Should().BeSameAs(expectedPermissions);
         sut.ErrorMessage.Should().BeNull();
         sut.HasError.Should().BeFalse();
         sut.LogCorrelationId.Should().BeNull();
