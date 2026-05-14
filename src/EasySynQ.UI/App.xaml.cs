@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Threading;
 
+using EasySynQ.Data.Context;
 using EasySynQ.Data.Extensions;
 using EasySynQ.Services.Abstractions;
 using EasySynQ.Services.Audit;
@@ -16,6 +17,7 @@ using EasySynQ.UI.Login;
 using EasySynQ.UI.Navigation;
 using EasySynQ.UI.Pulse;
 
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -59,10 +61,15 @@ namespace EasySynQ.UI;
 /// shutdown during the zero-window gap.
 /// </para>
 /// <para>
-/// <b>Still to land in Chunk E5.</b> E5.5 adds the EF Core migration
-/// check on startup, ordered last so a failed migration can log via
-/// the now-real logger and surface via the now-installed global
-/// handler.
+/// <b>Chunk E5.5.</b> Applies any pending EF Core migrations between
+/// the exception-handler install and the login flow. First-run
+/// creates the full schema (the prod DB at
+/// <c>%LOCALAPPDATA%\EasySynQ\db\EasySynQ_Master.db</c> is empty
+/// until E5.5 runs); steady-state is a no-op. A migration failure
+/// logs Critical, shows a "Cannot start" dialog, and queues an
+/// exit-code-1 shutdown — the global dispatcher handler's
+/// "keep the app alive" contract is wrong for a database that
+/// cannot accept writes.
 /// </para>
 /// </remarks>
 public partial class App : Application
@@ -95,6 +102,11 @@ public partial class App : Application
         _host.Start();
 
         ConfigureExceptionHandlers(_host);
+
+        if (!ApplyPendingMigrations(_host))
+        {
+            return;
+        }
 
         ConfigureLoginFlow(_host);
     }
@@ -443,6 +455,123 @@ public partial class App : Application
         Level = LogLevel.Error,
         Message = "Unobserved task exception")]
     private static partial void LogUnobservedTaskException(ILogger<App> logger, AggregateException exception);
+
+    /// <summary>
+    /// Applies any pending EF Core migrations to the registered
+    /// <see cref="EasySynQDbContext"/>. Returns <c>true</c> if the
+    /// database is ready (no pending migrations, or migrations applied
+    /// successfully) and <c>false</c> if migration failed and an
+    /// exit-code-1 shutdown has been queued.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// On first run the production database file is created by the
+    /// SQLite provider when EF opens its connection; without this
+    /// step the file exists but has no schema, and every subsequent
+    /// query throws <c>SqliteException: no such table</c>. On
+    /// steady-state runs the helper observes zero pending migrations
+    /// and returns silently — no log line, per the no-op-suppression
+    /// rule (keeps the steady-state log readable instead of stamping
+    /// "nothing to do" on every launch).
+    /// </para>
+    /// <para>
+    /// <b>Why try/catch instead of relying on the global dispatcher
+    /// handler.</b> The dispatcher handler's contract is "log,
+    /// dialog, keep the app alive." A database that cannot accept
+    /// writes makes the app unusable; continuing would just produce
+    /// cascading <c>SqliteException</c>s and a confused user. The
+    /// catch here is terminal-state handling — log Critical, show
+    /// one "Cannot start" dialog, queue a shutdown — not safety-net
+    /// handling.
+    /// </para>
+    /// <para>
+    /// <b>Why no extracted helper class for unit testing.</b> The
+    /// happy path is exercised in every integration-test run via
+    /// <c>TempSqliteDb.Create</c>, which calls
+    /// <c>Database.Migrate()</c> against a fresh SQLite file. The
+    /// failure path needs a corrupt DB or a buggy migration —
+    /// neither reproducible against a fake DbContext. Extraction
+    /// here would be ceremonial. Revisit if the helper grows
+    /// decision logic (retry, partial-migration handling,
+    /// categorization).
+    /// </para>
+    /// </remarks>
+    /// <param name="host">The host providing the scoped DbContext
+    /// and the host-side logger.</param>
+    /// <returns><c>true</c> on success (schema applied or already
+    /// up to date); <c>false</c> if migration failed (caller must
+    /// short-circuit further startup wiring so the login window
+    /// does not show during the queued shutdown).</returns>
+    [SuppressMessage(
+        "Design",
+        "CA1031:Do not catch general exception types",
+        Justification = "Migration failure is terminal — catch-all so any provider, IO, or permission failure surfaces uniformly via dialog + log + shutdown.")]
+    private static bool ApplyPendingMigrations(IHost host)
+    {
+        var logger = host.Services.GetRequiredService<ILogger<App>>();
+
+        try
+        {
+            using var scope = host.Services.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<EasySynQDbContext>();
+
+            var pending = db.Database.GetPendingMigrations().ToList();
+            if (pending.Count == 0)
+            {
+                return true;
+            }
+
+            LogMigrationsApplying(logger, pending.Count, pending);
+            db.Database.Migrate();
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogMigrationFailed(logger, ex);
+
+            MessageBox.Show(
+                "EasySynQ could not initialize its database and must exit. " +
+                "Please contact support and reference the log file at " +
+                "%LOCALAPPDATA%\\EasySynQ\\logs\\.\n\n" +
+                $"{ex.GetType().Name}: {ex.Message}",
+                "EasySynQ — Cannot start",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+
+            Current.Shutdown(1);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Source-generated emit for the migration-application path.
+    /// Fires only when there are migrations to apply (steady-state
+    /// launches produce no 6002 line). The destructuring prefix on
+    /// <c>{@Migrations}</c> preserves the collection's structure
+    /// for any future log-analysis tooling while still rendering
+    /// as a readable JSON array in the file sink.
+    /// </summary>
+    [LoggerMessage(
+        EventId = 6002,
+        Level = LogLevel.Information,
+        Message = "Applying {Count} pending migration(s): {@Migrations}")]
+    private static partial void LogMigrationsApplying(
+        ILogger<App> logger,
+        int count,
+        IReadOnlyList<string> migrations);
+
+    /// <summary>
+    /// Source-generated emit for migration failure. Fires once per
+    /// failed startup; the matching user-visible surface is the
+    /// "EasySynQ — Cannot start" dialog and the process exit code 1.
+    /// </summary>
+    [LoggerMessage(
+        EventId = 6003,
+        Level = LogLevel.Critical,
+        Message = "Database migration failed; application cannot start.")]
+    private static partial void LogMigrationFailed(
+        ILogger<App> logger,
+        Exception ex);
 
     /// <summary>
     /// Resolves <see cref="LoginWindow"/> from the host, subscribes
