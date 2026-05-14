@@ -426,3 +426,225 @@ Working tree clean as of this entry (after the docs handoff commit
 this entry is part of).
 
 ---
+
+## 2026-05-13 — Chunk E5.5 and Chunk F1 landed
+
+Phase 1's auth-success loop is reachable end-to-end for the first
+time. Three commits on master since the previous handoff:
+
+- `9cab16f` feat(host): EF Core migration check on startup (E5.5)
+- `76a7c55` feat(services): IBootstrapService for first-run
+  administrator creation; remove bootstrap from
+  IAuthenticationService (F1 part 1 of 2)
+- `2c7dc46` feat(ui): BootstrapWindow + BootstrapViewModel; App
+  detects and branches on bootstrap-required state (F1 part 2 of 2)
+
+Test count progression: 225 → 230 (F1 Commit 1) → 237 (F1 Commit 2).
+5/5 stability at every commit.
+
+What's done in Chunk E5.5:
+
+- App.xaml.cs's new `ApplyPendingMigrations` runs between the
+  global exception handlers and the login flow. Sync
+  (millisecond-scale at Phase 1 size), via a service scope +
+  `Database.Migrate()`. On success with pending migrations, logs
+  EventId 6002 Information with the list of migrations applied; on
+  no pending, no log line (steady-state silence — decision (d)).
+  On failure, logs Critical (EventId 6003), shows
+  "EasySynQ — Cannot start" dialog, calls `Current.Shutdown(1)`.
+- First-run launches now create the schema. The prod DB file at
+  `%LOCALAPPDATA%\EasySynQ\db\EasySynQ_Master.db` was empty
+  pre-E5.5; auth threw `SqliteException: no such table: Users` on
+  every sign-in attempt. Post-E5.5, first launch creates the
+  seven-table schema + two columns from `AddUserLockoutState`,
+  then `AnyAsync()` returns false → `FirstRunBootstrap`. That path
+  was caught by the placeholder dialog in LoginViewModel for the
+  first time during E5.5 smoke — and was then deleted in F1
+  Commit 2 once App owned the bootstrap branch directly.
+
+What's done in Chunk F1 (split across two commits):
+
+- `IBootstrapService` with two methods:
+  `IsBootstrapRequiredAsync` (wraps `!await _users.AnyAsync`) and
+  `CreateAdministratorAsync(username, password, displayName, ct)`
+  (creates `User` + `Administrator` `Role` + open-ended `UserRole`
+  atomically in one `IUnitOfWork.SaveChangesAsync`). The previous
+  `CreateBootstrapAdministratorAsync` on `IAuthenticationService`
+  (which created the User only, by explicit "identity not
+  authorization" scope) was moved + extended into
+  `BootstrapService`; the auth service surface no longer mentions
+  bootstrap. Path 1 resolution from the F1 pre-work design call —
+  the prior scope left the first user role-less, which would have
+  failed every Phase 2 authorization check.
+- `App.xaml.cs IsBootstrapRequired(IHost)` detects the empty-Users
+  state at startup (between migration check and login flow),
+  branches to `ConfigureBootstrapFlow` OR `ConfigureLoginFlow`
+  accordingly. No try/catch — bootstrap-detection failure surfaces
+  via the global E5.3 handler (correct shape; can't proceed with
+  broken data layer).
+- `BootstrapWindow` + `BootstrapViewModel` collect Username,
+  DisplayName, Password, Confirm Password. DisplayName pre-fill
+  latch tracks Username until first manual edit; resets when both
+  fields are emptied (both clear orderings handled symmetrically
+  in `OnUsernameChanged` and `OnDisplayNameChanged`). Password
+  policy validation deferred to `IPasswordHasher.Hash` —
+  `ArgumentException` translates to a clean user-facing error,
+  no log emit.
+- On successful bootstrap, `OnBootstrapSucceeded` mirrors
+  `OnLoginSucceeded`: SetCurrentUser → log EventId 6004 →
+  `MainWindow.Show` → `BootstrapWindow.Close`. Auto-sign-in works
+  end-to-end — the just-created admin lands in MainWindow without
+  re-typing credentials.
+- Idempotency-guard event path: if `CreateAdministratorAsync`
+  throws `InvalidOperationException` (a user appeared between
+  detection and create — vanishingly unlikely on a single-process
+  desktop app), VM raises `IdempotencyGuardFired`, App handler
+  logs EventId 6005 Warning + shows MessageBox "Setup is no longer
+  required. Please restart the application to sign in." +
+  `Application.Current.Shutdown(0)`. Next launch routes to
+  LoginWindow.
+- Audit attribution under null current user verified end-to-end:
+  bootstrap writes **4 audit rows** (Role + User + UserRole +
+  EffectiveDateRange owned-type), all `UserId = null`, all sharing
+  one `CorrelationId`. The 4-row shape (rather than the
+  pre-work-assumed 3) was the first exercise of the owned-type
+  audit pathway — see Follow-Up #11 below.
+
+New EventIds in use as of this session:
+
+- App-tier 6xxx range continues: 6002/6003 (migrations applied /
+  failed), 6004 (bootstrap-succeeded App handler), 6005
+  (idempotency-guard warning). 6001 `LogSignInSucceeded` was
+  wired in E5.4b but became reachable for the first time during
+  F1 smoke Step B.
+- **Service-tier 7xxx range introduced**: 7001
+  `LogBootstrapCompleted` in `BootstrapService`. First Services
+  project consumer of `[LoggerMessage]`.
+- VM-tier 1xxx range continues: 1002 `LogBootstrapSystemError` in
+  BootstrapViewModel (alongside 1001
+  `LoginViewModel.LogSignInSystemError`).
+
+Latent bugs surfaced during F1 smoke (worth keeping in mind for
+future sessions):
+
+- **BootstrapViewModel DisplayName latch reset required two
+  iterations to land correctly.** First iteration only reset the
+  `_displayNameManuallyEdited` flag in `OnDisplayNameChanged`;
+  smoke discovered that clearing Username LAST (DisplayName already
+  empty) left the latch flipped. The reset condition is a property
+  of state (both fields empty), not of which handler fires. Second
+  iteration mirrored the check into `OnUsernameChanged` (ordered
+  before the pre-fill guard so the just-reset latch is observed on
+  the same call). The original VM test exercised only one
+  clear-order; a new test was added (Case A — DisplayName cleared
+  first, Username last) that pins the regression closed.
+
+Smoke verification protocol — VINDICATED THREE TIMES this session:
+
+- The protocol from the E5 handoff — "smoke verification must
+  drive every reachable user gesture end-to-end under the real
+  host, not just confirm windows render" — caught real issues at
+  every chunk this session:
+  1. **E5.5 smoke** surfaced the placeholder bootstrap dialog
+     firing (expected, harmless — the first time the path had been
+     reachable since data layer landed). Established the
+     post-E5.5 state for F1 design.
+  2. **F1 Commit 1 pre-work** surfaced the existing
+     `CreateBootstrapAdministratorAsync` on IAuthenticationService —
+     a design-time discovery that changed the F1 commit shape from
+     "build new service" to "move + extend existing method." Saved
+     a follow-up commit.
+  3. **F1 Commit 2 smoke** caught the DisplayName latch
+     order-dependent gap (above). Tests at the time of first-fix
+     submission passed 236/236 because they only exercised one
+     clear order.
+- Establishing this as project practice for all future sessions.
+  Every chunk that touches user-facing surfaces should plan smoke
+  verification as part of the commit, not as an afterthought. Tests
+  pin behavior; smoke discovers behaviors worth pinning.
+
+Phase 1 Follow-Ups (running list — ten carry over from the previous
+handoff, two newly accumulated this session, totaling 12):
+
+1. (existing) Sign-in audit coverage incomplete. Unknown-user /
+   locked / disabled / bootstrap branches produce no audit row.
+2. (existing) "Last successful sign-in" footer hint deferred.
+3. (existing) Navigation events not audited.
+4. (existing) Pulse drawer tile tints — inline alpha-bearing hex
+   literals; promote to named tokens if a second surface needs them.
+5. (existing, now ACTIONABLE) Plumb authenticated user's effective
+   role through `AuthenticationResult.Success`,
+   `AuthenticatedUserEventArgs`, and
+   `BootstrapSucceededEventArgs`. The Administrator role + UserRole
+   assignment now exist as of F1 Commit 1, so role-resolution is
+   no longer blocked on "what role does the user have." Both
+   `OnLoginSucceeded` and `OnBootstrapSucceeded` currently pass
+   the literal `"Authenticated User"` placeholder string — grep for
+   it to find both call sites. ADR 0006 amendment still needed to
+   define semantics (single role / primary / selected-at-login).
+6. (existing) Connection-string promotion to configuration
+   (appsettings.json or in-app Settings flow).
+7. (existing) AsyncLocal correlation-scope holder for multi-save
+   logical operations (replace UiAuditCorrelationProvider's
+   permanent-null implementation when Phase 2 Document Controller
+   arrives).
+8. (existing) `EasySynQ.Services` `Serilog.Sinks.File 7.0.0` inert
+   dependency — DO NOT prune as "unused" before the consuming code
+   lands.
+9. (existing) Serilog file sink has no `retainedFileCountLimit` —
+   production deployment needs a retention setting (~30–60 days).
+10. (existing) EF Core log noise — tighten
+    `MinimumLevel.Override("Microsoft.EntityFrameworkCore", Warning)`
+    if dev noise persists post-E5.5.
+11. **(NEW, F1 Commit 1) Audit-row shape for entities with owned
+    types.** EF Core 10 tracks owned types as separate
+    `EntityEntry` instances; `AuditSaveChangesInterceptor` walks
+    `ChangeTracker.Entries()` and currently emits one audit row per
+    entry, including the owned-type entry. `UserRole.EffectivePeriod`
+    drove the discovery during F1 (the bootstrap UserRole insert
+    produces a 4th audit row attributed to `"EffectiveDateRange"`).
+    The owned-type row is currently the ONLY audit surface for the
+    `effective_*` values — the owner's `PropertyValues.Properties`
+    does not enumerate the flattened columns. Three resolution
+    shapes considered (status quo / suppress + enrich /
+    mixed-by-cardinality); decision deferred to its own ADR, with
+    pre-work needed on audit-log consumer expectations before
+    picking. Until that ADR lands, the status-quo shape is what F1
+    ships with — pinned by
+    `BootstrapServiceTests.CreateAdministratorAsync_WritesThreeAuditRows_*`
+    (the test name predates the discovery; the assertion is 4 rows
+    including EffectiveDateRange).
+12. **(NEW, this handoff) EventId not rendered in Serilog text
+    template.** The file sink outputs `{SourceContext}` but not
+    `{EventId}`, so when reading the log it's not visible which
+    specific `[LoggerMessage]` declaration fired — only the source
+    class. Adding `{Properties}` or specifically `{EventId}` to the
+    `outputTemplate` in `App.xaml.cs:ConfigureSerilog` would
+    surface it. Small fix; defer until the next time someone is in
+    Serilog config for another reason, or take a focused commit if
+    grep-by-EventId becomes useful for debugging.
+
+Next session entry point — three viable options:
+
+1. **Role plumbing (Follow-Up #5).** Now actionable as a side
+   effect of F1 Commit 1. Replace the `"Authenticated User"`
+   placeholder in both `SetCurrentUser` call sites with the user's
+   actual effective role. Requires ADR 0006 amendment defining
+   semantics (single role / primary / selected-at-login). Medium
+   scope — touches `AuthenticationResult.Success`,
+   `BootstrapSucceededEventArgs`, `AuthenticatedUserEventArgs`, a
+   new role-lookup method (likely on `IUserRepository` or a new
+   `IUserRoleRepository`), the two App handlers, and tests.
+2. **Follow-up grooming pass.** Knock out the smaller items —
+   Serilog retention (#9), EventId in template (#12), connection
+   string config (#6). Each is contained; bundled commit feasible
+   if scoped together.
+3. **Phase 2 Document Controller** per SPEC §9. Largest scope —
+   first feature module after the foundation. Would start fresh on
+   a real domain entity (Document, DocumentRevision) with the full
+   machinery (signature, lockout, content-addressed vault, detail
+   views, print stylesheet). Best home for the next 3–5 chunks.
+
+Working tree clean as of this entry's commit.
+
+---
