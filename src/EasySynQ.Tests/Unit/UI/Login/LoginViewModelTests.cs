@@ -188,28 +188,6 @@ public class LoginViewModelTests
     }
 
     [Fact]
-    public async Task SignInAsync_FirstRunBootstrapResult_RaisesBootstrapRequiredAndDoesNotRaiseLoginSucceededAsync()
-    {
-        var sut = BuildSut();
-        _auth.Setup(a => a.AuthenticateAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AuthenticationResult.FirstRunBootstrap());
-
-        var bootstrapRaisedCount = 0;
-        sut.BootstrapRequired += (_, _) => bootstrapRaisedCount++;
-        var loginSucceededRaised = false;
-        sut.LoginSucceeded += (_, _) => loginSucceededRaised = true;
-
-        sut.Username = "alice";
-        await sut.SignInCommand.ExecuteAsync("pw");
-
-        bootstrapRaisedCount.Should().Be(1);
-        loginSucceededRaised.Should().BeFalse();
-        sut.ErrorMessage.Should().BeNull();
-        sut.HasError.Should().BeFalse();
-        sut.LogCorrelationId.Should().BeNull();
-    }
-
-    [Fact]
     public void SignInCommand_EmptyOrWhitespaceUsername_CanExecuteReturnsFalse()
     {
         var sut = BuildSut();

@@ -11,9 +11,6 @@ namespace EasySynQ.UI.Login;
 ///   <item>Wiring <see cref="PasswordBox.Password"/> through to the
 ///   command parameter on each keystroke (the only way around
 ///   <c>PasswordBox</c>'s non-bindable design).</item>
-///   <item>Translating the view model's
-///   <see cref="LoginViewModel.BootstrapRequired"/> event into a
-///   placeholder dialog and window close.</item>
 ///   <item>Setting initial keyboard focus to the username field on load
 ///   and unsubscribing on close.</item>
 /// </list>
@@ -51,7 +48,6 @@ public partial class LoginWindow : Window
         DataContext = viewModel;
         InitializeComponent();
 
-        ViewModel.BootstrapRequired += OnBootstrapRequired;
         Loaded += OnLoaded;
     }
 
@@ -71,28 +67,9 @@ public partial class LoginWindow : Window
             .UpdateTarget();
     }
 
-    private void OnBootstrapRequired(object? sender, EventArgs e)
-    {
-        // TODO Phase 1 follow-up: route to a real first-run bootstrap
-        // window once that flow is designed. Placeholder dialog here
-        // exists only so a fresh install does not silently dead-end.
-        // Window is shown via Show() (not ShowDialog()), so setting
-        // DialogResult would throw — just Close() and let default
-        // ShutdownMode.OnLastWindowClose exit the app since no other
-        // window is open at this point.
-        MessageBox.Show(
-            this,
-            "First-run setup is not yet implemented in this build. Contact your administrator.",
-            "Setup Required",
-            MessageBoxButton.OK,
-            MessageBoxImage.Information);
-        Close();
-    }
-
     /// <inheritdoc />
     protected override void OnClosed(EventArgs e)
     {
-        ViewModel.BootstrapRequired -= OnBootstrapRequired;
         Loaded -= OnLoaded;
         base.OnClosed(e);
     }

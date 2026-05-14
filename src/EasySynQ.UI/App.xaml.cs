@@ -9,9 +9,11 @@ using EasySynQ.Data.Context;
 using EasySynQ.Data.Extensions;
 using EasySynQ.Services.Abstractions;
 using EasySynQ.Services.Audit;
+using EasySynQ.Services.Bootstrap;
 using EasySynQ.Services.Identity;
 using EasySynQ.Services.Time;
 using EasySynQ.UI.Audit;
+using EasySynQ.UI.Bootstrap;
 using EasySynQ.UI.Identity;
 using EasySynQ.UI.Login;
 using EasySynQ.UI.Navigation;
@@ -71,6 +73,20 @@ namespace EasySynQ.UI;
 /// "keep the app alive" contract is wrong for a database that
 /// cannot accept writes.
 /// </para>
+/// <para>
+/// <b>Chunk F1 Commit 2.</b> Bootstrap detection runs between the
+/// migration check and the login flow. When
+/// <see cref="IBootstrapService.IsBootstrapRequiredAsync"/> returns
+/// <see langword="true"/> (empty Users table after migrations
+/// applied), routes to <see cref="BootstrapWindow"/> instead of
+/// <see cref="LoginWindow"/>; on successful bootstrap, mirrors the
+/// post-login transition (<c>SetCurrentUser</c>, log success, open
+/// MainWindow, close BootstrapWindow). The idempotency-guard
+/// failure path (a user appeared between detection and create) shows
+/// a "setup not required" dialog and exits cleanly with code 0; the
+/// next launch routes to LoginWindow because the user count is now
+/// non-zero.
+/// </para>
 /// </remarks>
 public partial class App : Application
 {
@@ -108,7 +124,14 @@ public partial class App : Application
             return;
         }
 
-        ConfigureLoginFlow(_host);
+        if (IsBootstrapRequired(_host))
+        {
+            ConfigureBootstrapFlow(_host);
+        }
+        else
+        {
+            ConfigureLoginFlow(_host);
+        }
     }
 
     /// <inheritdoc />
@@ -224,6 +247,9 @@ public partial class App : Application
 
         services.AddTransient<LoginViewModel>();
         services.AddTransient<LoginWindow>();
+
+        services.AddTransient<BootstrapViewModel>();
+        services.AddTransient<BootstrapWindow>();
 
         services.AddSingleton<PulseDrawerViewModel>();
         services.AddSingleton<MainShellViewModel>();
@@ -660,4 +686,152 @@ public partial class App : Application
         Level = LogLevel.Information,
         Message = "User {Username} signed in successfully.")]
     private static partial void LogSignInSucceeded(ILogger<App> logger, string username);
+
+    /// <summary>
+    /// Detects whether the application is in the first-run bootstrap
+    /// state. Resolves <see cref="IBootstrapService"/> from a fresh
+    /// service scope, calls
+    /// <see cref="IBootstrapService.IsBootstrapRequiredAsync"/>
+    /// synchronously, and returns the result. Mirrors
+    /// <see cref="ApplyPendingMigrations"/>'s shape (scoped resolve,
+    /// sync bridge via <c>GetAwaiter().GetResult()</c>).
+    /// </summary>
+    /// <remarks>
+    /// No try/catch wrapper: detection failure is not a
+    /// graceful-degradation scenario. If the bootstrap service throws
+    /// (the DbContext fails to open, the user repository's
+    /// <c>AnyAsync</c> blows up), the exception propagates to the
+    /// global dispatcher handler and the user sees the standard
+    /// "Something went wrong" dialog. That's the correct shape — we
+    /// cannot proceed to either window with a broken data layer, and
+    /// silently defaulting to one of them would mask the real
+    /// failure.
+    /// </remarks>
+    /// <param name="host">The host providing the scoped
+    /// <see cref="IBootstrapService"/>.</param>
+    /// <returns><see langword="true"/> when no users exist (bootstrap
+    /// flow);  <see langword="false"/> when at least one user exists
+    /// (login flow).</returns>
+    private static bool IsBootstrapRequired(IHost host)
+    {
+        using var scope = host.Services.CreateScope();
+        var bootstrap = scope.ServiceProvider.GetRequiredService<IBootstrapService>();
+        return bootstrap.IsBootstrapRequiredAsync(CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Resolves <see cref="BootstrapWindow"/> from the host,
+    /// subscribes the host-side
+    /// <see cref="BootstrapViewModel.BootstrapSucceeded"/> and
+    /// <see cref="BootstrapViewModel.IdempotencyGuardFired"/>
+    /// handlers, and shows the window. Mirrors
+    /// <see cref="ConfigureLoginFlow"/>'s shape — MainWindow is not
+    /// resolved here; it is resolved lazily inside
+    /// <see cref="OnBootstrapSucceeded"/> after the user creates the
+    /// administrator account.
+    /// </summary>
+    /// <param name="host">The host providing the bootstrap surface
+    /// and its dependencies.</param>
+    private static void ConfigureBootstrapFlow(IHost host)
+    {
+        var bootstrapWindow = host.Services.GetRequiredService<BootstrapWindow>();
+        var accessor = host.Services.GetRequiredService<IWritableCurrentUserAccessor>();
+        var logger = host.Services.GetRequiredService<ILogger<App>>();
+
+        bootstrapWindow.ViewModel.BootstrapSucceeded += (_, args) =>
+            OnBootstrapSucceeded(host, bootstrapWindow, accessor, logger, args);
+
+        bootstrapWindow.ViewModel.IdempotencyGuardFired += (_, _) =>
+            OnIdempotencyGuardFired(logger);
+
+        bootstrapWindow.Show();
+    }
+
+    /// <summary>
+    /// Post-bootstrap transition. Populates the current-user accessor
+    /// with the newly-created administrator, logs the success,
+    /// resolves and shows <see cref="MainWindow"/>, then closes
+    /// <paramref name="bootstrapWindow"/>. Mirrors
+    /// <see cref="OnLoginSucceeded"/>'s ordering and rationale (see
+    /// that method's remarks for the SetCurrentUser-before-Show and
+    /// MainWindow.Show-before-Close requirements).
+    /// </summary>
+    /// <remarks>
+    /// <b>Role-name placeholder.</b> Uses the same
+    /// <c>"Authenticated User"</c> placeholder as
+    /// <see cref="OnLoginSucceeded"/>. We know the bootstrap user is
+    /// Administrator, but mirroring the placeholder keeps the two
+    /// transition paths consistent under the same Phase 1 Follow-Up
+    /// for role plumbing. Grep for the literal string to find both
+    /// call sites at the time of the future replacement.
+    /// </remarks>
+    private static void OnBootstrapSucceeded(
+        IHost host,
+        BootstrapWindow bootstrapWindow,
+        IWritableCurrentUserAccessor accessor,
+        ILogger<App> logger,
+        BootstrapSucceededEventArgs args)
+    {
+        accessor.SetCurrentUser(args.Administrator, "Authenticated User");
+        LogBootstrapSucceeded(logger, args.Administrator.Username);
+
+        var mainWindow = host.Services.GetRequiredService<MainWindow>();
+        mainWindow.Show();
+        bootstrapWindow.Close();
+    }
+
+    /// <summary>
+    /// Handles the bootstrap idempotency-guard event — a user
+    /// appeared between startup detection and the create call
+    /// (vanishingly unlikely on a single-process desktop app, but
+    /// the service-tier contract preserves the check). Logs at
+    /// <see cref="LogLevel.Warning"/>, surfaces a "setup not
+    /// required" dialog, and calls
+    /// <see cref="Application.Shutdown(int)"/> with exit code 0.
+    /// </summary>
+    /// <remarks>
+    /// Exit code 0 (not 1): the resolution is clean, not failed —
+    /// the user just needs to relaunch to land at LoginWindow. No
+    /// migration ran, no data state is corrupted, no support
+    /// intervention required.
+    /// </remarks>
+    private static void OnIdempotencyGuardFired(ILogger<App> logger)
+    {
+        LogBootstrapIdempotencyGuardFired(logger);
+
+        MessageBox.Show(
+            "Setup is no longer required. Please restart the application to sign in.",
+            "EasySynQ — Setup not required",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+
+        Current.Shutdown(0);
+    }
+
+    /// <summary>
+    /// Source-generated emit for the successful-bootstrap entry-point
+    /// transition. Fires once per app session (the bootstrap window
+    /// is single-use per install). The matching service-tier emit is
+    /// <see cref="BootstrapService"/>'s <c>LogBootstrapCompleted</c>
+    /// (EventId 7001).
+    /// </summary>
+    [LoggerMessage(
+        EventId = 6004,
+        Level = LogLevel.Information,
+        Message = "Bootstrap completed; signing in administrator {Username}.")]
+    private static partial void LogBootstrapSucceeded(ILogger<App> logger, string username);
+
+    /// <summary>
+    /// Source-generated emit for the bootstrap idempotency-guard
+    /// path. Logged at Warning rather than Error because the
+    /// resolution is clean (exit 0; next launch routes correctly);
+    /// the line exists so operators investigating "why did the
+    /// process exit immediately after starting" find an explicit
+    /// signal in the log.
+    /// </summary>
+    [LoggerMessage(
+        EventId = 6005,
+        Level = LogLevel.Warning,
+        Message = "Bootstrap idempotency guard fired — a user appeared between startup detection and create call. Application will exit cleanly; next launch will route to LoginWindow.")]
+    private static partial void LogBootstrapIdempotencyGuardFired(ILogger<App> logger);
 }

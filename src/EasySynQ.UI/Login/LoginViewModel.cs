@@ -12,8 +12,14 @@ namespace EasySynQ.UI.Login;
 /// View model for the login window. Mediates between the authentication
 /// service and the login surface — collects the username, accepts the
 /// password as a command parameter (never bound, never stored), and
-/// translates the auth service's discriminated result into the five
-/// user-facing outcomes the surface needs to render.
+/// translates the auth service's discriminated result into the four
+/// user-facing outcomes the surface needs to render
+/// (<see cref="AuthenticationResult.FirstRunBootstrap"/> is unreachable
+/// post-F1 Commit 2: <see cref="App"/> calls
+/// <see cref="EasySynQ.Services.Bootstrap.IBootstrapService.IsBootstrapRequiredAsync"/>
+/// at startup and routes to the bootstrap surface before LoginWindow is
+/// ever resolved; the switch's <c>default</c> arm catches the variant
+/// loudly if the path somehow fires).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -138,14 +144,6 @@ public partial class LoginViewModel : ObservableObject
     public event EventHandler<AuthenticatedUserEventArgs>? LoginSucceeded;
 
     /// <summary>
-    /// Raised when the auth service reports
-    /// <see cref="AuthenticationResult.FirstRunBootstrap"/>. The shell
-    /// routes to the bootstrap-administrator form rather than continuing
-    /// the login flow.
-    /// </summary>
-    public event EventHandler? BootstrapRequired;
-
-    /// <summary>
     /// Indicates whether the submit command can run for the current view
     /// model state. The password is not observed here — its presence is
     /// validated inside the command body so the password text never has
@@ -219,16 +217,15 @@ public partial class LoginViewModel : ObservableObject
                     LogCorrelationId = null;
                     break;
 
-                case AuthenticationResult.FirstRunBootstrap:
-                    ErrorMessage = null;
-                    LogCorrelationId = null;
-                    BootstrapRequired?.Invoke(this, EventArgs.Empty);
-                    break;
-
                 default:
                     // Defensive: a new AuthenticationResult variant added
                     // without a matching arm here is a service-contract
-                    // change the view model must explicitly handle.
+                    // change the view model must explicitly handle. Also
+                    // catches FirstRunBootstrap, which is unreachable
+                    // post-F1 Commit 2 (App routes to BootstrapWindow at
+                    // startup before LoginWindow resolves) — loud failure
+                    // here beats silently dead-ending if that invariant
+                    // ever breaks.
                     throw new InvalidOperationException(
                         $"Unhandled authentication result: {result.GetType().Name}");
             }
