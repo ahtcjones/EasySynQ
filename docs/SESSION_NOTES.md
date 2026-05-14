@@ -648,3 +648,182 @@ Next session entry point — three viable options:
 Working tree clean as of this entry's commit.
 
 ---
+
+## 2026-05-14 — ADR 0007 (Permission-Based Authorization Model) landed
+
+Phase 1's authorization model has been rebuilt from title-based
+role membership to permission-based authorization with admin-defined
+role bundles. Four commits on master since the previous handoff
+(this docs commit is the fourth):
+
+- `339a216` feat(data): Permission entities, link tables, seeded
+  catalog, and resolution repositories (ADR 0007 commit 1 of 4)
+- `df9db9b` feat(services): ICurrentUserAccessor permission shape;
+  BootstrapResult; auth + signature wiring; every caller synced
+  (ADR 0007 commit 2 of 4)
+- `04de843` feat(ui): MainShellViewModel pass-through; SPEC §3.4
+  amended; ADR 0007 Accepted (ADR 0007 commit 3 of 4)
+- (this commit) docs: session-handoff notes for ADR 0007
+
+ADR 0007 ships in `docs/decisions/0007-permission-based-authorization-model.md`;
+its status flipped from Proposed (2026-05-13) to Accepted (2026-05-14)
+when the SPEC amendment landed in commit 3. SPEC §3.4 Authorization
+is now the permission-based form described by the ADR (catalog +
+role bundles + effective-dated per-user grants). Spec revision
+bumped 3.2 → 3.3.
+
+### Test count progression
+
+| Stop point | Count | Delta | New tests |
+|---|---|---|---|
+| Pre-ADR-0007 (post-F1) | 237 | — | baseline |
+| Post-C1 (data layer) | 276 | +39 | entity unit tests, migration-seed test, PermissionRepository + UserRoleRepository integration |
+| Post-C2 (services) | 286 | +10 | WpfCurrentUserAccessor rewrite, auth + bootstrap snapshots, signature single-role constraint, ViewModel pass-through assertions |
+| Post-C3 (UI + SPEC) | 291 | +5 | MainShellViewModel pass-through |
+
+5/5 stress at 100% run-level pass rate at every commit stop point.
+
+### EventId allocations
+
+No new IDs landed in this chain. Three existing IDs gained
+structured `{Roles}` and `{Permissions}` payload properties:
+
+- 6001 `LogSignInSucceeded` (App-tier, sign-in)
+- 6004 `LogBootstrapSucceeded` (App-tier, bootstrap success)
+- 7001 `LogBootstrapCompleted` (Services-tier, BootstrapService)
+
+The EventId table doesn't grow — the emit payloads on these three
+do. Log-analysis tooling can now group sessions by role / permission
+sets, which is more useful than the previous "just the username"
+shape.
+
+### Smoke verification protocol — sharper after C3
+
+The C3 smoke had a pre-smoke false start worth pinning explicitly:
+Step A was *intended* to drive the BootstrapWindow flow against an
+empty Users table, but the leftover DB from the F1 smoke wasn't
+moved aside before launch, so App's bootstrap-detection returned
+false and routed to LoginWindow instead. The user reported "Step A
+passed" based on the topbar values they observed — which were the
+correct values for the LoginWindow flow, just not for the
+bootstrap path the smoke was supposed to exercise. The PowerShell
+log inspection caught the gap (EventId 6004 absent, `Permissions: []`
+on the signed-in legacy admin) and the smoke was re-run with the
+actual Move-Item step before C3 committed.
+
+The lesson: smoke gestures must verify against the *intended*
+state, not whatever happens to be on disk. The Move-Item DB-aside
+step is load-bearing for bootstrap-path verification, not optional
+setup. Verify state-on-disk before claiming a flow was exercised.
+Adding to the project's standing smoke protocol.
+
+### EF Core 10 owned-type gotcha worth pinning
+
+Each entity that owns a value-typed property (`OwnsOne` in EF
+configuration) must construct a **fresh instance** of the owned
+type, even when the value is identical across owners. Sharing one
+`EffectiveDateRange` instance across multiple `RolePermission`
+rows during the bootstrap loop caused EF Core's change-tracker to
+write NULLs for the second owner's flattened columns — the save
+failed with `"NOT NULL constraint failed:
+RolePermissions.EffectiveFromUtc"` the first time the bootstrap
+test ran. Documented inline at the BootstrapService loop body;
+surfaces anywhere multiple entities batch-create with identical
+owned-type values. Each owned EntityEntry expects to belong to
+exactly one owner; reuse violates that invariant.
+
+### Phase 1 Follow-Ups (running list, grooming pass after ADR 0007)
+
+**Resolved in this chain:**
+
+- ~~#5 Plumb authenticated user's effective role through
+  `AuthenticationResult.Success` / `AuthenticatedUserEventArgs` /
+  `BootstrapSucceededEventArgs`~~ — superseded by ADR 0007. The
+  `"Authenticated User"` placeholder string is gone; role plumbing
+  carries both `Roles` and `Permissions` collections end-to-end.
+  Removed from the open list.
+
+**Newly added:**
+
+- **"Sign-as-which-role" UX ADR.** `SignatureService` currently
+  throws `InvalidOperationException` when the current user's
+  `Roles.Count != 1`. Phase 1 Administrator is single-role so all
+  current paths succeed; the throw fires the first time a
+  multi-role user attempts to sign. The first Phase 2 feature
+  that consumes `ISignatureService` is the natural trigger for
+  the design ADR — likely a sign-as-role picker in the signature
+  dialog, with the picked role captured into
+  `Signature.RoleAtTimeOfSign`. Defer until that feature is
+  concrete.
+
+- **Upgrade-path migration gap.** `AddPermissionsAndLinkTables`
+  seeds the eleven `Permission` catalog rows but does NOT write
+  `RolePermission` link rows for an Administrator role that
+  pre-existed the migration (created by an F1-era bootstrap).
+  Pre-ADR-0007 installs (the current dev DB is one) upgrade to a
+  legacy admin with `Permissions: []` and every authorization
+  check would fail. New installs are unaffected because
+  post-ADR-0007 `BootstrapService` writes the link rows in its
+  transaction. Decision needed: (a) additive data migration that
+  detects the legacy Administrator role and writes the eleven
+  `RolePermission` rows for it, or (b) defer to a Phase 2
+  admin-tool command. Cheap to do as (a); also a natural
+  pre-Phase-2 commit so the dev DB has correct permissions
+  before Document Controller work starts checking them.
+
+**Still open (carry forward unchanged; numbering retained from
+previous handoff so prior cross-refs don't break — #5 is gone but
+the open-list shape is otherwise intact):**
+
+1. Sign-in audit coverage incomplete. Unknown-user / locked /
+   disabled / bootstrap branches produce no audit row.
+2. "Last successful sign-in" footer hint deferred.
+3. Navigation events not audited.
+4. Pulse drawer tile tints — inline alpha-bearing hex literals;
+   promote to named tokens if a second surface needs them.
+6. Connection-string promotion to configuration
+   (`appsettings.json` or in-app Settings flow).
+7. AsyncLocal correlation-scope holder for multi-save logical
+   operations (replace `UiAuditCorrelationProvider`'s
+   permanent-null implementation when Phase 2 Document Controller
+   arrives).
+8. `EasySynQ.Services` `Serilog.Sinks.File 7.0.0` inert dependency
+   — DO NOT prune as "unused" before the consuming code lands.
+9. Serilog file sink has no `retainedFileCountLimit` — production
+   deployment needs a retention setting (~30–60 days).
+10. EF Core log noise — tighten
+    `MinimumLevel.Override("Microsoft.EntityFrameworkCore", Warning)`
+    if dev noise persists.
+11. Audit-row shape for entities with owned types. The bootstrap
+    audit-row count is now 26 (1 User + 1 Role + 1 UserRole + 1
+    EffectiveDateRange [UserRole's] + 11 RolePermission + 11
+    EffectiveDateRange [each RolePermission's]). The owned-type
+    rows are the only audit surface for the `effective_*` values;
+    the open ADR question on whether to suppress + enrich vs.
+    keep the current shape is unchanged but considerably more
+    weight is now on the answer.
+12. EventId not rendered in Serilog text template. Adding
+    `{EventId}` to the `outputTemplate` in
+    `App.xaml.cs:ConfigureSerilog` would surface it.
+
+### Next-direction options (next session picks)
+
+1. **Upgrade-path migration** (newly tracked Follow-Up above).
+   Small, well-scoped, naturally pre-Phase-2. **Light
+   recommendation as the immediate next step** since the dev DB
+   is currently in the broken state and Phase 2 will start
+   writing authorization checks against an admin with empty
+   permissions.
+2. **Follow-up grooming pass** (#9 retention, #10 EF noise,
+   #12 EventId in template, possibly #6 connection-string config).
+   One commit, low stakes.
+3. **Phase 2 Document Controller** per SPEC §9. New architectural
+   territory; largest scope. First feature module after the
+   foundation. Would start fresh on a real domain entity
+   (`Document`, `DocumentRevision`) with the full machinery
+   (signature, lockout, content-addressed vault, detail views,
+   print stylesheet). Best home for the next 3–5 chunks.
+
+Working tree clean as of this entry's commit.
+
+---
