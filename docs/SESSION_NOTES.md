@@ -827,3 +827,173 @@ the open-list shape is otherwise intact):**
 Working tree clean as of this entry's commit.
 
 ---
+
+## 2026-05-14 (follow-up) — Upgrade-path migration closes the ADR 0007 follow-up
+
+Single commit on master since the previous handoff (this docs
+commit will be the second):
+
+- `2107ac9` feat(data): LinkLegacyAdministratorToSystemPermissions
+  migration closes the ADR 0007 upgrade-path gap
+
+The commit closes the "Upgrade-path migration gap" Phase 1
+Follow-Up that the [previous 2026-05-14 entry](#2026-05-14--adr-0007-permission-based-authorization-model-landed)
+added to the "NEWLY ADDED" list. The migration writes the eleven
+Phase 1 `RolePermission` link rows for an Administrator role that
+pre-existed `AddPermissionsAndLinkTables` — exactly the legacy
+shape any pre-ADR-0007 install would carry forward.
+
+### Test count progression
+
+| Stop point | Count | Delta | New tests |
+|---|---|---|---|
+| Post-ADR-0007 (commit 82455aa) | 291 | — | baseline |
+| Post-this-commit | 294 | +3 | `LinkLegacyAdministratorMigrationTests` — legacy-shape / fresh-shape / partial-state |
+
+5/5 stress at 100% run-level pass rate.
+
+### New test infrastructure
+
+`TempSqliteDb.CreateMigratedTo(string targetMigrationName)` joins
+the existing `Create()` and `CreateWithInterceptors()` helpers in
+`src/EasySynQ.Tests/TestHelpers/TempSqliteDb.cs`. Creates a temp
+DB and migrates only up to (and including) the named target via
+`IMigrator.Migrate(name)`; returns `(path, options)` like the
+existing helpers. Lets tests stage a "pre-X state" data shape,
+then apply migration X explicitly via `ctx.Database.Migrate()` on
+a freshly-opened context. Mirrors how the production E5.5 startup
+path applies pending migrations. Reusable for any future test
+that wants to verify a migration's behavior against a controlled
+pre-state.
+
+### EF Core 10 migration-pattern note worth pinning
+
+EF Core migrations cannot read DB state during `Up()` — the
+method runs at code-generation time, not execution time — so
+conditional logic must live in SQL. The TEMP-trigger pattern
+used in this migration is the cleanest available shape for
+"detect → branch → loud-fail" semantics inside a migration:
+
+1. `CREATE TEMP TABLE __MigrationGuard (placeholder INTEGER);`
+2. `CREATE TEMP TRIGGER … BEFORE INSERT ON __MigrationGuard
+   BEGIN SELECT RAISE(ABORT, '<diagnostic>'); END;`
+3. `INSERT INTO __MigrationGuard SELECT 1 WHERE EXISTS (…)` —
+   fires the trigger iff the precondition is violated.
+4. Real work (INSERTs, UPDATEs, etc.) — runs only if step 3 did
+   not abort.
+5. `DROP TABLE __MigrationGuard` — happy-path cleanup.
+
+`RAISE(ABORT, msg)` preserves the message verbatim in the
+resulting `SqliteException` (`SqliteErrorCode = 19`), so a
+human reading the log sees the diagnostic directly rather than
+a generic "constraint failed" string. TEMP table + TEMP trigger
+are connection-scoped and auto-cleaned on connection close, so
+an aborted `Up()` leaves no schema residue.
+
+Reusable for any future migration needing the same shape.
+
+### Smoke verification — production confirmation of the loud-failure trigger
+
+The migration's smoke verification surfaced an unplanned but
+load-bearing production proof of the loud-failure trigger
+pattern, end-to-end:
+
+At 18:08:17 the user launched the app BEFORE running the
+synthetic-legacy-state `DELETE` step. The dev DB still carried
+the eleven `RolePermission` rows from C3's bootstrap. The
+migration's precondition guard detected this, the trigger
+RAISE(ABORT)'d with the diagnostic message verbatim:
+
+> `LinkLegacyAdministratorToSystemPermissions: precondition violation — the Administrator role already has one or more RolePermission rows. This migration expects zero pre-existing link rows for the Administrator role. A human must investigate before proceeding. See ADR 0007 and the 2026-05-14 entry in docs/SESSION_NOTES.md.`
+
+E5.5's terminal-error path caught the `SqliteException`,
+logged EventId 6003 at Critical, surfaced the "EasySynQ —
+Cannot start" dialog, and called `Current.Shutdown(1)`. The
+full chain — SQL trigger → SqliteException →
+`Migrator.Migrate` → E5.5's `ApplyPendingMigrations` catch →
+user-facing dialog → exit code 1 — worked exactly as designed
+on the first contact with a real failing-state DB.
+
+The design choice (loud-failure trigger over silent SQL no-op)
+is now demonstrated working through every layer it touches.
+Worth more than a unit test; this is the integration-with-the-
+operating-environment proof.
+
+The user then ran the `DELETE`, relaunched at 18:12:05; the
+migration applied cleanly; sign-in at 18:14:32 returned
+`Roles: ["Administrator"]` and `Permissions: [the eleven]` in
+the structured log fields. Post-smoke DB inspection (via
+PowerShell + Microsoft.Data.Sqlite) confirmed 11
+RolePermission rows, all linked to the Administrator role, all
+with `CreatedBy = "system:migration"`.
+
+### Smoke protocol learning to pin
+
+When smoke flows involve a move-aside-and-restore step (the C3
+smoke moved the prod DB aside to force the bootstrap path),
+**running both halves of the cycle keeps the dev DB in the
+state subsequent follow-ups assume**. C3's smoke ran the
+move-aside but did not run the corresponding restore, leaving
+the dev DB in fresh-post-ADR-0007 state instead of the legacy
+pre-ADR-0007 state we had originally been operating against.
+This led to a detour during this commit's smoke setup: verify
+dev-DB state → discover it's not legacy → reconstruct synthetic
+legacy state via `DELETE` before launching.
+
+The detour was contained and resolved within the session, and
+arguably produced the bonus production confirmation noted above
+(the user's first launch without the `DELETE` was the
+real-world trigger fire). But the underlying lesson is
+durable: **complete move-aside-and-restore cycles fully when
+the smoke result is intended to leave the dev DB in a
+specific state**. Adding to the project's standing smoke
+protocol alongside the C3 entry's "verify state-on-disk before
+claiming a flow was exercised" rule.
+
+### Phase 1 Follow-Ups grooming
+
+**Resolved in this commit:**
+
+- ~~Upgrade-path migration gap~~ (newly added in 82455aa
+  handoff) — resolved by 2107ac9. Removed from the open list.
+
+**Still open (carry forward from the 82455aa handoff with no
+changes):**
+
+- **"Sign-as-which-role" UX ADR.** `SignatureService` throws
+  `InvalidOperationException` on `Roles.Count != 1`. Defer
+  until the first Phase 2 feature consuming `ISignatureService`
+  is concrete.
+
+- 11 carry-overs from the prior handoff (numbered list,
+  unchanged: #1 sign-in audit, #2 PreviousLoginUtc, #3
+  navigation audit, #4 pulse tint tokens, #6 connection-string
+  config, #7 AsyncLocal correlation scope, #8 inert
+  `Serilog.Sinks.File` reference, #9 file sink retention,
+  #10 EF Core log-noise tightening, #11 owned-type audit ADR,
+  #12 EventId in Serilog template). #5 remains gone
+  (superseded by ADR 0007).
+
+### Next-direction options (next session picks)
+
+1. **Phase 1 Follow-Up grooming pass.** Pick off lighter items
+   — #9 file sink retention, #10 EF noise tightening, #12
+   EventId in template, possibly #6 connection-string config
+   if bundled. One commit, low stakes.
+2. **Phase 2 Document Controller** per SPEC §9. New
+   architectural territory; largest scope. Benefits from a
+   fresh session with SPEC §9 loaded — first feature module
+   after the foundation, with the full machinery (signature,
+   lockout, content-addressed vault, detail views, print
+   stylesheet).
+
+The "upgrade-path migration" option from the 82455aa handoff is
+gone — resolved by this commit. The dev DB is now in the same
+state a fresh post-ADR-0007 install would be in (11
+RolePermission rows linking the Administrator role to every
+Phase 1 system permission), ready for any Phase 2 work that
+will check authorization against `_currentUser.Permissions`.
+
+Working tree clean as of this entry's commit.
+
+---
