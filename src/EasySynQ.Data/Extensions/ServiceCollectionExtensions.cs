@@ -70,6 +70,8 @@ public static class ServiceCollectionExtensions
 
         // Concrete repositories with entity-specific methods.
         services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IUserRoleRepository, UserRoleRepository>();
+        services.AddScoped<IPermissionRepository, PermissionRepository>();
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
 
         // Unit of work for explicit cross-save transactions.

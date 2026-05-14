@@ -86,8 +86,17 @@ public class EasySynQDbContext : DbContext
     /// <summary>Named role definitions.</summary>
     public DbSet<Role> Roles => Set<Role>();
 
+    /// <summary>Authorization permission catalog (ADR 0007).</summary>
+    public DbSet<Permission> Permissions => Set<Permission>();
+
     /// <summary>Effective-dated role assignments per user.</summary>
     public DbSet<UserRole> UserRoles => Set<UserRole>();
+
+    /// <summary>Effective-dated permission grants per role (ADR 0007).</summary>
+    public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
+
+    /// <summary>Effective-dated direct permission grants per user (ADR 0007).</summary>
+    public DbSet<UserPermission> UserPermissions => Set<UserPermission>();
 
     /// <summary>Append-only audit-log entries (SPEC §3.4).</summary>
     public DbSet<AuditLogEntry> AuditLogEntries => Set<AuditLogEntry>();
@@ -134,6 +143,16 @@ public class EasySynQDbContext : DbContext
             ur.EffectivePeriod.EffectiveFromUtc <= AsOfUtc
             && (ur.EffectivePeriod.EffectiveToUtc == null
                 || AsOfUtc < ur.EffectivePeriod.EffectiveToUtc));
+
+        modelBuilder.Entity<RolePermission>().HasQueryFilter(rp =>
+            rp.EffectivePeriod.EffectiveFromUtc <= AsOfUtc
+            && (rp.EffectivePeriod.EffectiveToUtc == null
+                || AsOfUtc < rp.EffectivePeriod.EffectiveToUtc));
+
+        modelBuilder.Entity<UserPermission>().HasQueryFilter(up =>
+            up.EffectivePeriod.EffectiveFromUtc <= AsOfUtc
+            && (up.EffectivePeriod.EffectiveToUtc == null
+                || AsOfUtc < up.EffectivePeriod.EffectiveToUtc));
 
         base.OnModelCreating(modelBuilder);
     }
