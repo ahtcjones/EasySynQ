@@ -46,7 +46,10 @@ public class BasicCrudTests : IntegrationTestBase
     public async Task Role_RoundTripsAsync()
     {
         var id = Guid.NewGuid();
-        var role = new Role(id, "QualityManager", "Approves NCRs and signs CoCs.");
+        // Name avoids "QualityManager" — the Phase 2 migration seeds a
+        // role with that exact name (ADR 0008), and Roles.Name has a
+        // unique index.
+        var role = new Role(id, "QualityManagerRoundTrip", "Approves NCRs and signs CoCs.");
 
         await using (var ctx = NewContext())
         {
@@ -57,7 +60,7 @@ public class BasicCrudTests : IntegrationTestBase
         await using (var ctx = NewContext())
         {
             var loaded = await ctx.Roles.SingleAsync(r => r.Id == id, Ct);
-            loaded.Name.Should().Be("QualityManager");
+            loaded.Name.Should().Be("QualityManagerRoundTrip");
             loaded.Description.Should().StartWith("Approves");
         }
     }

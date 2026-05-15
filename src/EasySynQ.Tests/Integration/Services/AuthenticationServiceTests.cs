@@ -230,7 +230,10 @@ public class AuthenticationServiceTests : ServiceIntegrationTestBase
         CurrentUser.UserId = Guid.NewGuid();
         await using (var ctx = NewContext())
         {
-            ctx.Roles.Add(new Role(roleId, "QualityManager", "QM role."));
+            // Name avoids "QualityManager" — Phase 2's migration seeds
+            // a role with that exact name (ADR 0008), and Roles.Name
+            // has a unique index.
+            ctx.Roles.Add(new Role(roleId, "QualityManagerAuthTest", "QM role."));
             ctx.Permissions.AddRange(rolePerm, directPerm);
             ctx.UserRoles.Add(new UserRole(Guid.NewGuid(), userId, roleId, period));
             ctx.RolePermissions.Add(new RolePermission(Guid.NewGuid(), roleId, rolePerm.Id, period));
@@ -247,7 +250,7 @@ public class AuthenticationServiceTests : ServiceIntegrationTestBase
 
         var success = result.Should().BeOfType<AuthenticationResult.Success>().Subject;
         success.User.Username.Should().Be("alice");
-        success.Roles.Should().BeEquivalentTo("QualityManager");
+        success.Roles.Should().BeEquivalentTo("QualityManagerAuthTest");
         // Union of role-derived ("Doc.Approve") and direct
         // ("Audit.Inspect") grants, deduplicated.
         success.Permissions.Should().BeEquivalentTo("Doc.Approve", "Audit.Inspect");

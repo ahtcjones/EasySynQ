@@ -73,22 +73,30 @@ public class BootstrapServiceTests : ServiceIntegrationTestBase
             users[0].Username.Should().Be("admin");
             users[0].DisplayName.Should().Be("Administrator");
 
-            var roles = await ctx.Roles.ToListAsync(Ct);
-            roles.Should().ContainSingle();
-            roles[0].Name.Should().Be("Administrator");
+            // Roles include the seeded Phase 2 QualityManager role
+            // alongside the bootstrap-created Administrator role.
+            // Scope the assertion to the Administrator role
+            // specifically — the seeded QM role is pre-existing
+            // catalog data, not something bootstrap creates.
+            var adminRole = await ctx.Roles.SingleAsync(r => r.Name == "Administrator", Ct);
 
             var userRoles = await ctx.UserRoles.ToListAsync(Ct);
             userRoles.Should().ContainSingle();
             userRoles[0].UserId.Should().Be(users[0].Id);
-            userRoles[0].RoleId.Should().Be(roles[0].Id);
+            userRoles[0].RoleId.Should().Be(adminRole.Id);
             userRoles[0].EffectivePeriod.EffectiveFromUtc.Should().Be(Clock.UtcNow);
             userRoles[0].EffectivePeriod.EffectiveToUtc.Should().BeNull();
 
             // Eleven RolePermission rows linking the Administrator
-            // role to every Phase 1 system permission.
-            var rolePermissions = await ctx.RolePermissions.ToListAsync(Ct);
+            // role to every Phase 1 system permission. Scoped to the
+            // Administrator role's id — the seeded QualityManager
+            // role also has RolePermission rows (12 of them, one per
+            // Phase 2 document permission except Document.AssignReviewers)
+            // and would inflate an unfiltered count.
+            var rolePermissions = await ctx.RolePermissions
+                .Where(rp => rp.RoleId == adminRole.Id)
+                .ToListAsync(Ct);
             rolePermissions.Should().HaveCount(PermissionNames.All.Count);
-            rolePermissions.Should().OnlyContain(rp => rp.RoleId == roles[0].Id);
             rolePermissions.Should().OnlyContain(
                 rp => rp.EffectivePeriod.EffectiveFromUtc == Clock.UtcNow
                    && rp.EffectivePeriod.EffectiveToUtc == null);
@@ -214,9 +222,17 @@ public class BootstrapServiceTests : ServiceIntegrationTestBase
         userRole.EffectivePeriod.EffectiveFromUtc.Should().Be(distinctive);
         userRole.EffectivePeriod.EffectiveToUtc.Should().BeNull();
 
-        // All eleven RolePermission rows share the same EffectiveFromUtc
-        // — the bootstrap transaction has one clock instant of truth.
-        var rolePermissions = await ctx.RolePermissions.ToListAsync(Ct);
+        // All eleven RolePermission rows for the Administrator role
+        // share the same EffectiveFromUtc — the bootstrap transaction
+        // has one clock instant of truth. Scoped to userRole.RoleId
+        // (the bootstrap-created Administrator role) — the seeded
+        // Phase 2 QualityManager role's 12 RolePermission rows are
+        // pre-existing catalog data, not part of what bootstrap writes,
+        // and they carry the migration's seed timestamp (2026-05-14),
+        // not this test's distinctive 2027 clock.
+        var rolePermissions = await ctx.RolePermissions
+            .Where(rp => rp.RoleId == userRole.RoleId)
+            .ToListAsync(Ct);
         rolePermissions.Should().HaveCount(PermissionNames.All.Count);
         rolePermissions.Should().OnlyContain(
             rp => rp.EffectivePeriod.EffectiveFromUtc == distinctive

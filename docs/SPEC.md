@@ -1,6 +1,6 @@
 # EasySynQ — Comprehensive Coding Project Prompt
 **A Quality Management System for ISO 9001:2015 Compliance**
-**Revision 3.3 · May 2026**
+**Revision 3.4 · May 2026**
 
 ---
 
@@ -14,6 +14,7 @@
 | 3.1 | May 2026 | License-driven dependency swap. Replaced FluentAssertions in §2 with **AwesomeAssertions** (a community fork of FluentAssertions 7 maintained under MIT) after FluentAssertions 8.x shifted to a commercial license in early 2025. API-compatible; no test code changes implied. |
 | 3.2 | May 2026 | Clarified §3.7: `EffectiveFromUtc` may be in the future to support pre-scheduled configuration changes (e.g., a tolerance change that takes effect next Monday). The as-of resolver handles not-yet-active versions naturally; no new state required. |
 | 3.3 | May 2026 | Amended §3.4 Authorization to permission-based with admin-defined role bundles (ADR 0007). Roles are no longer prescribed as a hardcoded list; the Administrator role is reserved for IT-side system administration, and operational roles are admin-created. Per-user permission grants are effective-dated alongside role assignments and role-permission links. |
+| 3.4 | May 2026 | Amended §5.1 Document Controller per ADR 0008. Refined lifecycle state machine (Approved distinct from Active; bidirectional Draft ↔ In Review; Retire as terminal split from Supersede). Assigned-reviewer model with author + N reviewer signatures replaces the QM-only approval gate. Document permissions catalog seeded by Phase 2 migration; default `QualityManager` role seeded with the documented permission set, `Document.AssignReviewers` intentionally unassigned by default so organizations choose between small-shop and strict-gatekeeper policies without code changes. Retraining cascade published as `DocumentRevisionApprovedEvent` (handler lands in Phase 4 Competency Matrix). |
 
 ---
 
@@ -213,26 +214,51 @@ Auditors still print. Print views are part of acceptance, not an afterthought.
 **Purpose:** The system of record for all controlled documents.
 
 **Sub-libraries:**
-- **Internal Library** — SOPs, Work Instructions, Safety Manuals. Owned by EasySynQ; full revision control.
+- **Internal Library** — SOPs, Work Instructions, Safety Manuals. Owned by EasySynQ; full revision control with the lifecycle below.
 - **External Library** — ASTM, AMS, customer specifications. Imported; tracked by issuing body, designation, revision, effective date. **Referenced only — never authored or controlled by EasySynQ.**
 
-**Lifecycle State Machine:** `Draft → In Review → Approved (Active) → Superseded → Archived`
-- Only Quality Manager (or Administrator) can transition `In Review → Approved`.
-- Approval requires a digital signature.
-- Approving a new revision automatically supersedes the prior active revision.
-- **Approving a revision also writes retraining-required records to all operators currently qualified on the prior revision** (see Module 5.9).
+**Lifecycle State Machine (refined per ADR 0008):**
 
-**Vault Storage:** All document files stored content-addressed (Section 3.6).
+`Draft → In Review → Approved → Active → (Superseded | Archived)`
+
+with a return edge `In Review → Draft` when reviewers require author changes.
+
+- **Draft:** Author edits freely. May be hard-deleted by author (no signatures yet).
+- **In Review:** Author assigns reviewers (`Document.AssignReviewers` permission) and submits. Each named reviewer signs to advance the document. Author cannot edit. Reviewers can post comments. If returns to Draft, in-progress reviewer signatures discarded (preserved in audit log; no longer count toward approval).
+- **Approved:** All reviewer signatures captured. Document signed off but not necessarily in effect yet.
+- **Active:** Current effective revision. Derived at read time from `ApprovedAtUtc` + `EffectiveFromUtc` + presence of superseding revisions. A revision is Active when it is Approved AND its effective date has passed AND no later revision is yet effective.
+- **Superseded:** A new revision has been approved and made Active in this revision's place.
+- **Archived:** The document has been retired with no successor.
+
+**Effective dating:** `DocumentRevision.EffectiveFromUtc` is nullable. When null or in the past at approval, the revision becomes Active immediately. When future, the revision stays Approved until the effective date, then auto-promotes to Active at read time.
+
+**Approval mechanics:**
+- Each document submission carries a set of `DocumentReviewAssignment` rows naming the reviewers.
+- Each reviewer's sign-off writes a `Signature` entity per SPEC §3.4 (UserId, UtcTimestamp, SHA-256 of signed payload, role-at-time-of-sign) and updates the assignment row.
+- When all assigned reviewers have signed, the document transitions In Review → Approved atomically in the same transaction as the final signature.
+- The author also signs at submission time (separate `Signature` entity). An Approved document carries 1 + N signatures (author plus N reviewers).
+
+**Supersede vs. Retire:**
+- **Supersede:** Approving a new revision automatically supersedes the prior Active revision. Always pairs with a new revision.
+- **Retire:** Explicit `Document.Retire` action with a Retirement signature. No new revision is created; the document is withdrawn.
+
+**Vault Storage:** All Internal document files stored content-addressed (SPEC §3.6).
 
 **Viewer:** Embedded PDF rendering. Documents are read-only inside the app.
 
-**Compatibility Flagging:** When an external document is updated to a new revision, all linked internal documents flag with **"Compatibility Review Required"** until a Quality Manager signs off or issues a new internal revision.
+**Retraining cascade:** Approving a new revision of an Internal document publishes a `DocumentRevisionApprovedEvent`. In Phase 2 no handler is registered. In Phase 4 (Competency Matrix), a handler writes retraining-required records to operators currently qualified on the prior revision, transactionally with the approval.
+
+**Compatibility Flagging:** When an External document is updated to a new revision, all linked Internal documents receive a "Compatibility Review Required" flag until a user with the appropriate permission signs off or a new Internal revision is approved.
+
+**Authorization:** Permission-based per ADR 0007. The Document permissions catalog (`Document.Create`, `Document.EditDraft`, `Document.SubmitForReview`, `Document.AssignReviewers`, `Document.Review`, `Document.ReturnForEdits`, `Document.Retire`, `Document.SoftDelete`, `Document.HardDelete`, `Document.ViewArchived`, plus `ExternalDocument.*` and `DocumentLink.Manage`) is seeded in Phase 2's migration. A default `QualityManager` role is seeded with all Document and ExternalDocument permissions assigned (organizations can modify via admin UI when it ships). `Document.AssignReviewers` is intentionally not assigned to QualityManager by default — organizations grant it to author roles for the small-shop default or restrict to QualityManager for the strict-gatekeeper model.
 
 **Acceptance Criteria:**
-- Approving Rev B of an SOP makes Rev A read-only and unselectable in production workflows.
-- Approving a new SOP revision transactionally writes retraining records to affected operators in the same transaction.
-- A user cannot edit an `Approved` document — they must create a new revision.
-- All transitions recorded in the audit log with before/after states.
+- Approving Rev B of an SOP makes Rev A's `Lifecycle` become `Superseded`, and Rev A becomes unselectable in production workflows.
+- Approving a new SOP revision publishes `DocumentRevisionApprovedEvent` in the same transaction. (Phase 4 wires the retraining-record write.)
+- A user cannot edit a document in any state other than Draft — they must return-for-edits (with permission) or create a new revision.
+- All lifecycle transitions recorded in the audit log with before/after states.
+- Retiring a document writes a Retirement signature and moves the current revision to Archived; the document has no Active revision afterward.
+- Returning a document from In Review to Draft discards all in-progress reviewer signatures (preserved in audit log; flagged as Discarded in `DocumentReviewAssignment`).
 
 ---
 

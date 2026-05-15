@@ -17,8 +17,10 @@ public class IdentityForeignKeyTests : IntegrationTestBase
     public async Task InsertingUserRole_WithNonexistentUserId_FailsAsync()
     {
         // Set up a valid Role so the RoleId FK is satisfied; the failure
-        // must come from the UserId FK specifically.
-        var role = new Role(Guid.NewGuid(), "QualityManager", "Quality Manager role.");
+        // must come from the UserId FK specifically. Name avoids
+        // "QualityManager" — the Phase 2 migration seeds a role with
+        // that exact name (ADR 0008), and Roles.Name has a unique index.
+        var role = new Role(Guid.NewGuid(), "QualityManagerFkTest", "Quality Manager role.");
         await using (var ctx = NewContext())
         {
             ctx.Roles.Add(role);

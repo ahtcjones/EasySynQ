@@ -1,5 +1,6 @@
 using EasySynQ.Data.Conventions;
 using EasySynQ.Domain.Entities.Audit;
+using EasySynQ.Domain.Entities.Documents;
 using EasySynQ.Domain.Entities.Identity;
 using EasySynQ.Domain.Entities.Snapshots;
 using EasySynQ.Services.Abstractions;
@@ -109,6 +110,30 @@ public class EasySynQDbContext : DbContext
 
     /// <summary>Snapshot manifests (SPEC §3.3).</summary>
     public DbSet<Snapshot> Snapshots => Set<Snapshot>();
+
+    // ADR 0008 — Phase 2 Document Controller entities.
+
+    /// <summary>Internal controlled documents (SPEC §5.1).</summary>
+    public DbSet<Document> Documents => Set<Document>();
+
+    /// <summary>Document revisions (SPEC §5.1).</summary>
+    public DbSet<DocumentRevision> DocumentRevisions => Set<DocumentRevision>();
+
+    /// <summary>External specification references (SPEC §5.1 External Library).</summary>
+    public DbSet<ExternalDocument> ExternalDocuments => Set<ExternalDocument>();
+
+    /// <summary>Links between internal revisions and external documents (SPEC §5.1).</summary>
+    public DbSet<DocumentLink> DocumentLinks => Set<DocumentLink>();
+
+    /// <summary>Per-reviewer review-assignment state for in-review revisions (ADR 0008).</summary>
+    public DbSet<DocumentReviewAssignment> DocumentReviewAssignments
+        => Set<DocumentReviewAssignment>();
+
+    /// <summary>Reviewer comments on in-review revisions (ADR 0008).</summary>
+    public DbSet<DocumentReviewComment> DocumentReviewComments => Set<DocumentReviewComment>();
+
+    /// <summary>Content-addressed vault file metadata (SPEC §3.6).</summary>
+    public DbSet<VaultBlob> VaultBlobs => Set<VaultBlob>();
 
     // Internal property used by the effective-dating query filter. The
     // filter references AsOfUtc via `this`, which EF Core's expression

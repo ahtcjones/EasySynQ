@@ -60,6 +60,12 @@ public static class PermissionNames
     /// <summary>
     /// Canonical ordered list of every Phase 1 permission name. Used by
     /// the bootstrap path to fetch the seeded rows in one query.
+    /// Intentionally Phase 1 only — Phase 2+ catalogs are exposed via
+    /// per-phase lists (e.g., <see cref="Phase2Document"/>) so the
+    /// bootstrap administrator continues to receive only the
+    /// IT-side system permissions (ADR 0007 §Decision — Administrator
+    /// is reserved for system administration, not operational
+    /// superuser).
     /// </summary>
     public static IReadOnlyList<string> All { get; } =
     [
@@ -74,5 +80,122 @@ public static class PermissionNames
         UserAssignRoles,
         UserGrantPermissions,
         AuditLogRead,
+    ];
+
+    // ───────────────────────────────────────────────────────────────
+    // Phase 2 — Document Controller (ADR 0008)
+    // ───────────────────────────────────────────────────────────────
+
+    /// <summary>Create a new internal document (initial Draft revision).</summary>
+    public const string DocumentCreate = "Document.Create";
+
+    /// <summary>Edit a document while it is in Draft state.</summary>
+    public const string DocumentEditDraft = "Document.EditDraft";
+
+    /// <summary>Move a Draft revision to In Review.</summary>
+    public const string DocumentSubmitForReview = "Document.SubmitForReview";
+
+    /// <summary>
+    /// Name the reviewer set when submitting for review. May be granted
+    /// to authors (small-shop default) or restricted to QM
+    /// (strict-gatekeeper policy). Intentionally not assigned to the
+    /// seeded QualityManager role by default per ADR 0008.
+    /// </summary>
+    public const string DocumentAssignReviewers = "Document.AssignReviewers";
+
+    /// <summary>
+    /// Sign as a reviewer on a document where the user is in the
+    /// assigned-reviewers list.
+    /// </summary>
+    public const string DocumentReview = "Document.Review";
+
+    /// <summary>Return an In Review document to Draft for author edits.</summary>
+    public const string DocumentReturnForEdits = "Document.ReturnForEdits";
+
+    /// <summary>Retire an Active document (no new revision).</summary>
+    public const string DocumentRetire = "Document.Retire";
+
+    /// <summary>
+    /// Soft-delete a document or revision (with reason) once it is past
+    /// the hard-delete boundary.
+    /// </summary>
+    public const string DocumentSoftDelete = "Document.SoftDelete";
+
+    /// <summary>
+    /// Hard-delete a Draft revision that has no signatures and is not
+    /// referenced by any signed record.
+    /// </summary>
+    public const string DocumentHardDelete = "Document.HardDelete";
+
+    /// <summary>
+    /// View Superseded and Archived revisions in the UI (not in the
+    /// default Active-only list).
+    /// </summary>
+    public const string DocumentViewArchived = "Document.ViewArchived";
+
+    /// <summary>Add a new External document reference (ASTM, AMS, customer spec).</summary>
+    public const string ExternalDocumentCreate = "ExternalDocument.Create";
+
+    /// <summary>Record a new revision of an External document.</summary>
+    public const string ExternalDocumentUpdateRevision = "ExternalDocument.UpdateRevision";
+
+    /// <summary>Create or remove links between internal documents and external documents.</summary>
+    public const string DocumentLinkManage = "DocumentLink.Manage";
+
+    /// <summary>
+    /// Canonical ordered list of every Phase 2 Document Controller
+    /// permission name (ADR 0008). The order matches the migration's
+    /// seed block and the SPEC §5.1 amendment's catalog enumeration.
+    /// The migration-seed test pins equality of seeded names against
+    /// this list.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="DocumentAssignReviewers"/> appears in this list (it
+    /// is a real catalog permission) but is intentionally not granted
+    /// to the seeded QualityManager role — see
+    /// <see cref="QualityManagerDefaults"/> for the default-role
+    /// permission set.
+    /// </remarks>
+    public static IReadOnlyList<string> Phase2Document { get; } =
+    [
+        DocumentCreate,
+        DocumentEditDraft,
+        DocumentSubmitForReview,
+        DocumentAssignReviewers,
+        DocumentReview,
+        DocumentReturnForEdits,
+        DocumentRetire,
+        DocumentSoftDelete,
+        DocumentHardDelete,
+        DocumentViewArchived,
+        ExternalDocumentCreate,
+        ExternalDocumentUpdateRevision,
+        DocumentLinkManage,
+    ];
+
+    /// <summary>
+    /// Permission names granted to the seeded QualityManager role at
+    /// Phase 2 migration time. Equal to <see cref="Phase2Document"/>
+    /// minus <see cref="DocumentAssignReviewers"/>. The omission is
+    /// deliberate per ADR 0008: <c>Document.AssignReviewers</c> is
+    /// granted by organizations either to author roles (small-shop
+    /// default) or restricted to QM (strict-gatekeeper policy) —
+    /// either choice is a policy decision the seeded data does not
+    /// make.
+    /// </summary>
+    public static IReadOnlyList<string> QualityManagerDefaults { get; } =
+    [
+        DocumentCreate,
+        DocumentEditDraft,
+        DocumentSubmitForReview,
+        DocumentReview,
+        DocumentReturnForEdits,
+        DocumentRetire,
+        DocumentSoftDelete,
+        DocumentHardDelete,
+        DocumentViewArchived,
+        ExternalDocumentCreate,
+        ExternalDocumentUpdateRevision,
+        DocumentLinkManage,
     ];
 }

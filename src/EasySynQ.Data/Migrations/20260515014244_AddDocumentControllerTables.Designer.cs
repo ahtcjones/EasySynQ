@@ -3,6 +3,7 @@ using System;
 using EasySynQ.Data.Context;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace EasySynQ.Data.Migrations
 {
     [DbContext(typeof(EasySynQDbContext))]
-    partial class EasySynQDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260515014244_AddDocumentControllerTables")]
+    partial class AddDocumentControllerTables
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.7");

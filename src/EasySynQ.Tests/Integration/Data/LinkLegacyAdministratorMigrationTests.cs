@@ -10,6 +10,9 @@ using EasySynQ.Tests.TestHelpers;
 
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
+using Microsoft.Extensions.DependencyInjection;
 
 using Xunit;
 
@@ -36,6 +39,17 @@ namespace EasySynQ.Tests.Integration.Data;
 public class LinkLegacyAdministratorMigrationTests : IDisposable
 {
     private const string PriorMigrationName = "AddPermissionsAndLinkTables";
+
+    /// <summary>
+    /// Migration these tests exercise. Targeted-migration application
+    /// (<see cref="IMigrator.Migrate(string)"/>) is used so subsequent
+    /// migrations (Phase 2's <c>AddDocumentControllerTables</c> and any
+    /// future migrations) do not run as part of "apply pending" — the
+    /// tests assert against rows owned by this migration alone, and
+    /// running later migrations would tangle their seed data into the
+    /// assertions.
+    /// </summary>
+    private const string TargetMigrationName = "LinkLegacyAdministratorToSystemPermissions";
 
     private readonly string _dbPath;
     private readonly DbContextOptions<EasySynQDbContext> _options;
@@ -83,11 +97,13 @@ public class LinkLegacyAdministratorMigrationTests : IDisposable
             (await ctx.RolePermissions.CountAsync(Ct)).Should().Be(0);
         }
 
-        // Apply the pending migration (only LinkLegacyAdministrator…
-        // remains).
+        // Apply LinkLegacyAdministratorToSystemPermissions specifically
+        // (not "all pending" — see TargetMigrationName remarks for why
+        // targeted application matters).
         await using (var ctx = NewContext())
         {
-            ctx.Database.Migrate();
+            var migrator = ctx.GetInfrastructure().GetRequiredService<IMigrator>();
+            migrator.Migrate(TargetMigrationName);
         }
 
         // Post-state assertions.
@@ -127,10 +143,11 @@ public class LinkLegacyAdministratorMigrationTests : IDisposable
             (await ctx.RolePermissions.CountAsync(Ct)).Should().Be(0);
         }
 
-        // Apply the pending migration.
+        // Apply LinkLegacyAdministratorToSystemPermissions specifically.
         await using (var ctx = NewContext())
         {
-            ctx.Database.Migrate();
+            var migrator = ctx.GetInfrastructure().GetRequiredService<IMigrator>();
+            migrator.Migrate(TargetMigrationName);
         }
 
         // Post-state: still zero RolePermission rows, no exception.
@@ -174,14 +191,16 @@ public class LinkLegacyAdministratorMigrationTests : IDisposable
             await ctx.SaveChangesAsync(Ct);
         }
 
-        // Apply the pending migration. The temp-trigger guard inside
-        // the migration's Up() fires RAISE(ABORT, '…') when the
-        // partial-state precondition is detected; SqliteException
-        // surfaces with the diagnostic in its Message.
+        // Apply LinkLegacyAdministratorToSystemPermissions specifically.
+        // The temp-trigger guard inside the migration's Up() fires
+        // RAISE(ABORT, '…') when the partial-state precondition is
+        // detected; SqliteException surfaces with the diagnostic in
+        // its Message.
         var act = () =>
         {
             using var ctx = NewContext();
-            ctx.Database.Migrate();
+            var migrator = ctx.GetInfrastructure().GetRequiredService<IMigrator>();
+            migrator.Migrate(TargetMigrationName);
         };
 
         act.Should()
