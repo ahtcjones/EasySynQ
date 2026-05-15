@@ -184,11 +184,46 @@ public partial class App : Application
             .WriteTo.File(
                 path: Path.Combine(logDir, "easysynq-.log"),
                 rollingInterval: RollingInterval.Day,
+                // ~90 files at the daily roll cadence ≈ 90 days of
+                // history. The file sink is operational/diagnostic
+                // only — compliance evidence lives in the audit log
+                // table (SPEC §7.3), not in these files, so the
+                // retention bound is tuned for debug usefulness, not
+                // for any auditor-facing retention requirement.
+                retainedFileCountLimit: 90,
                 formatProvider: CultureInfo.InvariantCulture,
-                outputTemplate:
-                    "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}")
+                outputTemplate: FileSinkOutputTemplate)
             .CreateLogger();
     }
+
+    /// <summary>
+    /// Output template for the daily-rolling file sink. Extracted to a
+    /// named constant so the test project can pin its format against
+    /// accidental regressions and so future format changes
+    /// (timestamp adjustments, exception rendering, level width) have
+    /// one canonical home.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>EventId is intentionally not rendered inline.</b> An earlier
+    /// Phase 1 follow-up proposed adding <c>{EventId}</c> to the
+    /// template for raw-log grep convenience. Investigation closed
+    /// the item as not-feasible: Serilog's output-template grammar
+    /// does not support nested property access (so
+    /// <c>{EventId.Id}</c> cannot reach into the <c>StructureValue</c>
+    /// the <c>Serilog.Extensions.Logging</c> adapter produces from
+    /// <see cref="Microsoft.Extensions.Logging.EventId"/>), and bare
+    /// <c>{EventId}</c> renders the verbose
+    /// <c>[{ Id: 6001, Name: "…" }]</c> structured form that uglifies
+    /// every text line. The EventId property remains attached to each
+    /// <see cref="Serilog.Events.LogEvent"/> for structured-log
+    /// consumers (JSON sink, Seq, future aggregators); only the raw
+    /// text rendering omits it. See the 2026-05-14 entry in
+    /// docs/SESSION_NOTES.md for the full rationale.
+    /// </para>
+    /// </remarks>
+    internal const string FileSinkOutputTemplate =
+        "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {SourceContext}: {Message:lj}{NewLine}{Exception}";
 
     /// <summary>
     /// Populates the host's service collection with the shell's
