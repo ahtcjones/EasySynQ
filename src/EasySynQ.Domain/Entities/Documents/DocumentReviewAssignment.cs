@@ -142,4 +142,69 @@ public class DocumentReviewAssignment : AuditableEntity
         AssignedByUserId = assignedByUserId;
         Status = DocumentReviewAssignmentStatus.Pending;
     }
+
+    /// <summary>
+    /// Records the reviewer's signature on this assignment, transitioning
+    /// <see cref="Status"/> from
+    /// <see cref="DocumentReviewAssignmentStatus.Pending"/> to
+    /// <see cref="DocumentReviewAssignmentStatus.Signed"/> and stamping
+    /// <see cref="SignedAtUtc"/> + <see cref="SignatureId"/>.
+    /// </summary>
+    /// <param name="signatureId">Id of the
+    /// <c>Signature</c> row attesting to the reviewer's sign-off. Must
+    /// not be <see cref="Guid.Empty"/>.</param>
+    /// <param name="signedAtUtc">UTC instant of the signature. Must be of
+    /// <see cref="DateTimeKind.Utc"/>.</param>
+    /// <exception cref="InvalidOperationException">Thrown when the
+    /// assignment is not in <see cref="DocumentReviewAssignmentStatus.Pending"/>.</exception>
+    /// <exception cref="ArgumentException">Thrown when any input fails
+    /// validation.</exception>
+    public void RecordSignature(Guid signatureId, DateTime signedAtUtc)
+    {
+        if (Status != DocumentReviewAssignmentStatus.Pending)
+        {
+            throw new InvalidOperationException(
+                $"Cannot record signature on assignment {Id}: current status is '{Status}', expected '{nameof(DocumentReviewAssignmentStatus.Pending)}'.");
+        }
+        if (signatureId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "SignatureId must not be Guid.Empty.",
+                nameof(signatureId));
+        }
+        if (signedAtUtc.Kind != DateTimeKind.Utc)
+        {
+            throw new ArgumentException(
+                "SignedAtUtc must have DateTimeKind.Utc.",
+                nameof(signedAtUtc));
+        }
+
+        Status = DocumentReviewAssignmentStatus.Signed;
+        SignedAtUtc = signedAtUtc;
+        SignatureId = signatureId;
+    }
+
+    /// <summary>
+    /// Marks the assignment as
+    /// <see cref="DocumentReviewAssignmentStatus.Discarded"/> per ADR
+    /// 0008 §"Signatures reset when In Review returns to Draft" — the
+    /// assignment row is preserved (audit), the
+    /// <see cref="SignedAtUtc"/> / <see cref="SignatureId"/> values (if
+    /// already populated) are preserved as well, and the assignment no
+    /// longer counts toward approval. Throws when called on an
+    /// already-discarded assignment per ADR 0008 C3 plan §G Q4 —
+    /// idempotent no-ops mask bugs.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown when the
+    /// assignment is already <see cref="DocumentReviewAssignmentStatus.Discarded"/>.</exception>
+    public void Discard()
+    {
+        if (Status == DocumentReviewAssignmentStatus.Discarded)
+        {
+            throw new InvalidOperationException(
+                $"Cannot discard assignment {Id}: already in '{nameof(DocumentReviewAssignmentStatus.Discarded)}' state.");
+        }
+
+        Status = DocumentReviewAssignmentStatus.Discarded;
+    }
 }

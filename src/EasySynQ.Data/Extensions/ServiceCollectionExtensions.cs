@@ -3,6 +3,8 @@ using EasySynQ.Data.Interceptors;
 using EasySynQ.Data.Repositories;
 using EasySynQ.Services.Abstractions;
 using EasySynQ.Services.Bootstrap;
+using EasySynQ.Services.Documents;
+using EasySynQ.Services.Events;
 using EasySynQ.Services.Identity;
 using EasySynQ.Services.Signatures;
 using EasySynQ.Services.Vault;
@@ -51,7 +53,9 @@ public static class ServiceCollectionExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
 
         // Interceptors. Scoped because they consume scoped abstractions
-        // (ICurrentUserAccessor, IAuditCorrelationProvider).
+        // (ICurrentUserAccessor, IAuditCorrelationProvider,
+        // IDomainEventDispatcher).
+        services.AddScoped<DomainEventDispatchInterceptor>();
         services.AddScoped<StandardFieldsInterceptor>();
         services.AddScoped<AuditSaveChangesInterceptor>();
 
@@ -75,6 +79,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IPermissionRepository, PermissionRepository>();
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
         services.AddScoped<IVaultBlobRepository, VaultBlobRepository>();
+        services.AddScoped<IDocumentRepository, DocumentRepository>();
+        services.AddScoped<IDocumentRevisionRepository, DocumentRevisionRepository>();
+        services.AddScoped<IDocumentReviewAssignmentRepository, DocumentReviewAssignmentRepository>();
 
         // Unit of work for explicit cross-save transactions.
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -98,6 +105,17 @@ public static class ServiceCollectionExtensions
         // the scoped IVaultBlobRepository + IUnitOfWork.
         services.AddSingleton<IVaultPathProvider, DefaultVaultPathProvider>();
         services.AddScoped<IVaultService, VaultService>();
+
+        // Domain event dispatcher (ADR 0008 C3). Scoped — same lifetime
+        // as the DbContext + unit of work + DomainEventDispatchInterceptor
+        // so the dispatcher instance the lifecycle service enqueues
+        // against is the same instance the interceptor drains.
+        // No event handlers registered in Phase 2 (Phase 4 will add
+        // the retraining-cascade handler for DocumentRevisionApprovedEvent).
+        services.AddScoped<IDomainEventDispatcher, DomainEventDispatcher>();
+
+        // Document lifecycle service (ADR 0008 C3).
+        services.AddScoped<IDocumentLifecycleService, DocumentLifecycleService>();
 
         return services;
     }

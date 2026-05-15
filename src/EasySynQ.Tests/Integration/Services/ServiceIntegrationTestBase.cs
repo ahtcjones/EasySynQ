@@ -5,6 +5,8 @@ using EasySynQ.Domain.Entities.Identity;
 using EasySynQ.Services.Abstractions;
 using EasySynQ.Services.Audit;
 using EasySynQ.Services.Bootstrap;
+using EasySynQ.Services.Documents;
+using EasySynQ.Services.Events;
 using EasySynQ.Services.Identity;
 using EasySynQ.Services.Signatures;
 using EasySynQ.Services.Time;
@@ -77,6 +79,16 @@ public abstract class ServiceIntegrationTestBase : IDisposable
     /// <see cref="NewContext()"/> calls.</summary>
     protected MutableTemporalResolver TemporalResolver { get; }
 
+    /// <summary>
+    /// Recording domain event dispatcher shared across the prep
+    /// container (interceptor binding) and the runtime container
+    /// (lifecycle service injection). Tests inspect
+    /// <c>EventDispatcher.Recorded</c> to assert publication. See
+    /// <see cref="RecordingDomainEventDispatcher"/> remarks for the
+    /// singleton-in-tests-scoped-in-prod tradeoff.
+    /// </summary>
+    protected RecordingDomainEventDispatcher EventDispatcher { get; }
+
     /// <summary>The fast test policy (registered as singleton in
     /// <see cref="ServiceProvider"/>).</summary>
     protected IPasswordPolicy Policy { get; }
@@ -132,6 +144,9 @@ public abstract class ServiceIntegrationTestBase : IDisposable
         services.AddSingleton<ITemporalResolver>(TemporalResolver);
 
         // Interceptors — scoped per the production registration.
+        // (DomainEventDispatchInterceptor is registered as a singleton
+        // below alongside the shared dispatcher so the captured-options
+        // and the runtime container reference the same instance.)
         services.AddScoped<StandardFieldsInterceptor>();
         services.AddScoped<AuditSaveChangesInterceptor>();
 
@@ -154,6 +169,10 @@ public abstract class ServiceIntegrationTestBase : IDisposable
         services.AddSingleton<IVaultPathProvider>(new FixedVaultPathProvider(_vaultRoot));
         services.AddScoped<IVaultService, VaultService>();
 
+        // Lifecycle service (ADR 0008 C3) — depends on the
+        // singleton dispatcher registered immediately below.
+        services.AddScoped<IDocumentLifecycleService, DocumentLifecycleService>();
+
         // We need a temporary singleton-only provider to resolve the
         // interceptors when building DbContextOptions. The interceptors
         // are scoped, but we want the options to capture them via the
@@ -162,17 +181,48 @@ public abstract class ServiceIntegrationTestBase : IDisposable
         // interceptors-as-singletons (override scope), construct the
         // options, then register the options bag for downstream scoped
         // DbContext resolution.
+        //
+        // ADR 0008 C3 addition — the dispatcher and the dispatch
+        // interceptor must share an instance with the runtime
+        // lifecycle service. Build the dispatcher once in the prep
+        // container, then register the SAME instance as a singleton
+        // in the runtime container below. The dispatcher's
+        // IServiceProvider is the prep container — Phase 2 has no
+        // event handlers in production, and tests verify publication
+        // via the recording wrapper rather than by registering
+        // handlers in DI.
         var interceptorPrep = new ServiceCollection();
         interceptorPrep.AddSingleton<IClock>(Clock);
         interceptorPrep.AddSingleton<ICurrentUserAccessor>(CurrentUser);
         interceptorPrep.AddSingleton<IAuditCorrelationProvider>(Correlation);
         interceptorPrep.AddSingleton<StandardFieldsInterceptor>();
         interceptorPrep.AddSingleton<AuditSaveChangesInterceptor>();
+        // Dispatcher built later (after the prep provider exists, so
+        // the dispatcher's serviceProvider is wired); registered into
+        // both containers as the singleton instance.
         var interceptorProvider = interceptorPrep.BuildServiceProvider();
+        EventDispatcher = new RecordingDomainEventDispatcher(interceptorProvider);
 
+        // Register the dispatcher in BOTH containers as a singleton
+        // pointing at the same instance. The interceptor (resolved
+        // from the prep container at options-build time) and the
+        // lifecycle service (resolved from the runtime container at
+        // service-call time) share the queue.
+        var dispatchInterceptor = new DomainEventDispatchInterceptor(EventDispatcher);
+        var dispatchInterceptorBox = dispatchInterceptor;
+        services.AddSingleton<IDomainEventDispatcher>(EventDispatcher);
+        services.AddSingleton(dispatchInterceptorBox);
+
+        // Manual interceptor wiring rather than UseEasySynQInterceptors
+        // so we can interleave the singleton dispatch interceptor (held
+        // outside the prep container) in the right position. Order
+        // matches production: dispatch → standard-fields → audit.
         Options = new DbContextOptionsBuilder<EasySynQDbContext>()
             .UseSqlite($"Data Source={_dbPath}")
-            .UseEasySynQInterceptors(interceptorProvider)
+            .AddInterceptors(
+                dispatchInterceptor,
+                interceptorProvider.GetRequiredService<StandardFieldsInterceptor>(),
+                interceptorProvider.GetRequiredService<AuditSaveChangesInterceptor>())
             .Options;
 
         // Register the DbContext as scoped, constructed from the
@@ -191,6 +241,9 @@ public abstract class ServiceIntegrationTestBase : IDisposable
         services.AddScoped<IPermissionRepository, PermissionRepository>();
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
         services.AddScoped<IVaultBlobRepository, VaultBlobRepository>();
+        services.AddScoped<IDocumentRepository, DocumentRepository>();
+        services.AddScoped<IDocumentRevisionRepository, DocumentRevisionRepository>();
+        services.AddScoped<IDocumentReviewAssignmentRepository, DocumentReviewAssignmentRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         ServiceProvider = services.BuildServiceProvider();

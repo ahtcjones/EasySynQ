@@ -2,6 +2,7 @@ using EasySynQ.Data.Context;
 using EasySynQ.Data.Interceptors;
 using EasySynQ.Services.Abstractions;
 using EasySynQ.Services.Audit;
+using EasySynQ.Services.Events;
 using EasySynQ.Services.Time;
 
 using Microsoft.Data.Sqlite;
@@ -115,6 +116,14 @@ public static class TempSqliteDb
         services.AddSingleton(temporalResolver);
         services.AddSingleton<StandardFieldsInterceptor>();
         services.AddSingleton<AuditSaveChangesInterceptor>();
+        // Dispatch interceptor (ADR 0008 C3) — wired with a real
+        // DomainEventDispatcher for Phase 2-onward tests. Data-layer
+        // interceptor tests don't enqueue events, so the dispatcher's
+        // queue stays empty and the interceptor short-circuits via
+        // HasPending. The dispatcher's IServiceProvider is the prep
+        // container itself; Phase 2 has no handlers in production.
+        services.AddSingleton<IDomainEventDispatcher, DomainEventDispatcher>();
+        services.AddSingleton<DomainEventDispatchInterceptor>();
         var sp = services.BuildServiceProvider();
 
         var options = new DbContextOptionsBuilder<EasySynQDbContext>()

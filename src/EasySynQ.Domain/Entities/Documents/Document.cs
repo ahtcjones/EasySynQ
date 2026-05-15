@@ -102,4 +102,53 @@ public class Document : AuditableEntity
         Number = number;
         Title = title;
     }
+
+    /// <summary>
+    /// Records the retirement of this document (ADR 0008 C3, SPEC §5.1).
+    /// Sets <see cref="RetiredAtUtc"/>, <see cref="RetiredByUserId"/>,
+    /// and <see cref="RetirementSignatureId"/> in one atomic update. The
+    /// caller is responsible for archiving the current Active revision
+    /// in the same transaction.
+    /// </summary>
+    /// <param name="retiredAtUtc">UTC instant of retirement. Must be of
+    /// <see cref="DateTimeKind.Utc"/>.</param>
+    /// <param name="retiredByUserId">Id of the user performing the
+    /// retirement. Must not be <see cref="Guid.Empty"/>.</param>
+    /// <param name="retirementSignatureId">Id of the
+    /// <c>Signature</c> row attesting to the retirement. Must not be
+    /// <see cref="Guid.Empty"/>.</param>
+    /// <exception cref="InvalidOperationException">Thrown when the
+    /// document has already been retired.</exception>
+    /// <exception cref="ArgumentException">Thrown when any input fails
+    /// validation.</exception>
+    public void Retire(DateTime retiredAtUtc, Guid retiredByUserId, Guid retirementSignatureId)
+    {
+        if (RetiredAtUtc is not null)
+        {
+            throw new InvalidOperationException(
+                $"Document {Id} has already been retired at {RetiredAtUtc:O}; cannot retire twice.");
+        }
+        if (retiredAtUtc.Kind != DateTimeKind.Utc)
+        {
+            throw new ArgumentException(
+                "RetiredAtUtc must have DateTimeKind.Utc.",
+                nameof(retiredAtUtc));
+        }
+        if (retiredByUserId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "RetiredByUserId must not be Guid.Empty.",
+                nameof(retiredByUserId));
+        }
+        if (retirementSignatureId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "RetirementSignatureId must not be Guid.Empty.",
+                nameof(retirementSignatureId));
+        }
+
+        RetiredAtUtc = retiredAtUtc;
+        RetiredByUserId = retiredByUserId;
+        RetirementSignatureId = retirementSignatureId;
+    }
 }

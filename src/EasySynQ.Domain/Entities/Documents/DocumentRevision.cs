@@ -143,4 +143,182 @@ public class DocumentRevision : SignableEntity
         AuthorUserId = authorUserId;
         Lifecycle = DocumentLifecycle.Draft;
     }
+
+    /// <summary>
+    /// Sets <see cref="EffectiveFromUtc"/>. Allowed only while the
+    /// revision is in <see cref="DocumentLifecycle.Draft"/>; once a
+    /// revision is submitted, its effective date is bound to the author
+    /// signature's payload and may not be silently changed. Pass
+    /// <see langword="null"/> to clear (revision will become Active
+    /// immediately on approval).
+    /// </summary>
+    /// <param name="effectiveFromUtc">UTC instant from which the
+    /// revision becomes Active once approved, or <see langword="null"/>
+    /// for immediate. Must be of <see cref="DateTimeKind.Utc"/> when
+    /// non-null. May be in the future per SPEC §3.7.</param>
+    /// <exception cref="InvalidOperationException">Thrown when the
+    /// revision is not in <see cref="DocumentLifecycle.Draft"/>.</exception>
+    /// <exception cref="ArgumentException">Thrown when
+    /// <paramref name="effectiveFromUtc"/> is non-null and not of
+    /// <see cref="DateTimeKind.Utc"/>.</exception>
+    public void SetEffectiveFromUtc(DateTime? effectiveFromUtc)
+    {
+        if (Lifecycle != DocumentLifecycle.Draft)
+        {
+            throw new InvalidOperationException(
+                $"Cannot set EffectiveFromUtc on a revision in '{Lifecycle}' state; only Draft revisions are editable.");
+        }
+        if (effectiveFromUtc is { } value && value.Kind != DateTimeKind.Utc)
+        {
+            throw new ArgumentException(
+                "EffectiveFromUtc must have DateTimeKind.Utc.",
+                nameof(effectiveFromUtc));
+        }
+
+        EffectiveFromUtc = effectiveFromUtc;
+    }
+
+    /// <summary>
+    /// Transitions the revision from <see cref="DocumentLifecycle.Draft"/>
+    /// to <see cref="DocumentLifecycle.InReview"/>. Stamps the author's
+    /// submission signature reference and locks the entity (sets
+    /// <see cref="EasySynQ.Domain.Common.SignableEntity.LockedAtUtc"/>).
+    /// The lock is one-way per the SignableEntity contract — even if the
+    /// revision later returns to Draft, <c>LockedAtUtc</c> remains set.
+    /// </summary>
+    /// <param name="authorSignatureId">Id of the author's submission
+    /// <c>Signature</c>. Must not be <see cref="Guid.Empty"/>.</param>
+    /// <param name="lockedAtUtc">UTC instant at which the lock is
+    /// recorded. Must be of <see cref="DateTimeKind.Utc"/>.</param>
+    /// <exception cref="InvalidOperationException">Thrown when the
+    /// revision is not in Draft.</exception>
+    /// <exception cref="ArgumentException">Thrown when any input fails
+    /// validation.</exception>
+    public void Submit(Guid authorSignatureId, DateTime lockedAtUtc)
+    {
+        if (Lifecycle != DocumentLifecycle.Draft)
+        {
+            throw new InvalidOperationException(
+                $"Cannot submit revision {Id} for review: current state is '{Lifecycle}', expected '{nameof(DocumentLifecycle.Draft)}'.");
+        }
+        if (authorSignatureId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "AuthorSignatureId must not be Guid.Empty.",
+                nameof(authorSignatureId));
+        }
+        if (lockedAtUtc.Kind != DateTimeKind.Utc)
+        {
+            throw new ArgumentException(
+                "LockedAtUtc must have DateTimeKind.Utc.",
+                nameof(lockedAtUtc));
+        }
+
+        Lifecycle = DocumentLifecycle.InReview;
+        AuthorSignatureId = authorSignatureId;
+        // LockedAtUtc has a protected setter on SignableEntity (visible
+        // here because we derive from it). One-way per the
+        // SignableEntity contract — once set, never reset to null even
+        // if the revision later returns to Draft.
+        if (LockedAtUtc is null)
+        {
+            LockedAtUtc = lockedAtUtc;
+        }
+    }
+
+    /// <summary>
+    /// Transitions the revision from <see cref="DocumentLifecycle.InReview"/>
+    /// back to <see cref="DocumentLifecycle.Draft"/>. Clears
+    /// <see cref="AuthorSignatureId"/> per ADR 0008 C3 plan §G Q3 — the
+    /// previous author signature is preserved in the audit log; on
+    /// re-submission a fresh author signature attests to the
+    /// (potentially edited) revision state. <c>LockedAtUtc</c> is NOT
+    /// cleared (one-way per <c>SignableEntity</c>'s contract).
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown when the
+    /// revision is not in InReview.</exception>
+    public void ReturnToDraft()
+    {
+        if (Lifecycle != DocumentLifecycle.InReview)
+        {
+            throw new InvalidOperationException(
+                $"Cannot return revision {Id} to Draft: current state is '{Lifecycle}', expected '{nameof(DocumentLifecycle.InReview)}'.");
+        }
+
+        Lifecycle = DocumentLifecycle.Draft;
+        AuthorSignatureId = null;
+    }
+
+    /// <summary>
+    /// Transitions the revision from <see cref="DocumentLifecycle.InReview"/>
+    /// to <see cref="DocumentLifecycle.Approved"/>. Stamps
+    /// <see cref="ApprovedAtUtc"/>. The "Active" sub-state is derived at
+    /// query time from <see cref="ApprovedAtUtc"/> +
+    /// <see cref="EffectiveFromUtc"/>; this method does not stamp it.
+    /// </summary>
+    /// <param name="approvedAtUtc">UTC instant of approval — typically
+    /// the same instant as the final reviewer's signature timestamp.
+    /// Must be of <see cref="DateTimeKind.Utc"/>.</param>
+    /// <exception cref="InvalidOperationException">Thrown when the
+    /// revision is not in InReview.</exception>
+    /// <exception cref="ArgumentException">Thrown when
+    /// <paramref name="approvedAtUtc"/> is not UTC.</exception>
+    public void Approve(DateTime approvedAtUtc)
+    {
+        if (Lifecycle != DocumentLifecycle.InReview)
+        {
+            throw new InvalidOperationException(
+                $"Cannot approve revision {Id}: current state is '{Lifecycle}', expected '{nameof(DocumentLifecycle.InReview)}'.");
+        }
+        if (approvedAtUtc.Kind != DateTimeKind.Utc)
+        {
+            throw new ArgumentException(
+                "ApprovedAtUtc must have DateTimeKind.Utc.",
+                nameof(approvedAtUtc));
+        }
+
+        Lifecycle = DocumentLifecycle.Approved;
+        ApprovedAtUtc = approvedAtUtc;
+    }
+
+    /// <summary>
+    /// Transitions the revision from <see cref="DocumentLifecycle.Approved"/>
+    /// to <see cref="DocumentLifecycle.Superseded"/>. Per ADR 0008 C3
+    /// plan §G Q9, this fires immediately when a successor revision
+    /// becomes Approved, regardless of the successor's
+    /// <see cref="EffectiveFromUtc"/>. The Approved-to-Effective gap is
+    /// surfaced by the as-of resolver returning no Active revision for
+    /// the document during the gap.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown when the
+    /// revision is not in Approved.</exception>
+    public void Supersede()
+    {
+        if (Lifecycle != DocumentLifecycle.Approved)
+        {
+            throw new InvalidOperationException(
+                $"Cannot supersede revision {Id}: current state is '{Lifecycle}', expected '{nameof(DocumentLifecycle.Approved)}'.");
+        }
+
+        Lifecycle = DocumentLifecycle.Superseded;
+    }
+
+    /// <summary>
+    /// Transitions the revision from <see cref="DocumentLifecycle.Approved"/>
+    /// to <see cref="DocumentLifecycle.Archived"/>. Used when the parent
+    /// <c>Document</c> is retired — the current Active revision moves to
+    /// Archived and no successor is created.
+    /// </summary>
+    /// <exception cref="InvalidOperationException">Thrown when the
+    /// revision is not in Approved.</exception>
+    public void Archive()
+    {
+        if (Lifecycle != DocumentLifecycle.Approved)
+        {
+            throw new InvalidOperationException(
+                $"Cannot archive revision {Id}: current state is '{Lifecycle}', expected '{nameof(DocumentLifecycle.Approved)}'.");
+        }
+
+        Lifecycle = DocumentLifecycle.Archived;
+    }
 }

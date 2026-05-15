@@ -43,6 +43,23 @@ public sealed class SignatureService : ISignatureService
         string canonicalPayload,
         CancellationToken cancellationToken)
     {
+        // Single-action wrapper: stage + save. Multi-entity callers
+        // (lifecycle transitions per ADR 0008 C3) call
+        // StageSignatureAsync directly so the signature row commits in
+        // the same SaveChanges as the surrounding state changes.
+        var signature = await StageSignatureAsync(
+            signedEntityType, signedEntityId, canonicalPayload, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        return signature;
+    }
+
+    /// <inheritdoc />
+    public async Task<Signature> StageSignatureAsync(
+        string signedEntityType,
+        string signedEntityId,
+        string canonicalPayload,
+        CancellationToken cancellationToken)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(signedEntityType);
         ArgumentException.ThrowIfNullOrWhiteSpace(signedEntityId);
         ArgumentException.ThrowIfNullOrWhiteSpace(canonicalPayload);
@@ -64,11 +81,10 @@ public sealed class SignatureService : ISignatureService
         // is the only user produced by Phase 1. Multi-role users
         // (Plant Manager + Internal Auditor, etc.) require a
         // "sign-as-which-role" UX that has not yet been designed; the
-        // open Phase 1 Follow-Up will land that ADR when the first
-        // signature-consuming feature (Phase 2 Document Controller) is
-        // built. Throwing here instead of papering over with .First()
-        // surfaces the gap loudly at the first multi-role signing
-        // attempt.
+        // open Phase 1 Follow-Up will land that ADR when C4
+        // (signature dialog scaffolding) ships. Throwing here instead
+        // of papering over with .First() surfaces the gap loudly at
+        // the first multi-role signing attempt.
         if (_currentUser.Roles.Count != 1)
         {
             throw new InvalidOperationException(
@@ -90,8 +106,6 @@ public sealed class SignatureService : ISignatureService
             payloadHash: payloadHash);
 
         await _signatures.AddAsync(signature, cancellationToken);
-        await _unitOfWork.SaveChangesAsync(cancellationToken);
-
         return signature;
     }
 

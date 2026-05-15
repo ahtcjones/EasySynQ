@@ -51,6 +51,44 @@ public interface ISignatureService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Same shape as <see cref="SignAsync"/> but does NOT call
+    /// <c>SaveChanges</c> on the unit of work — the new
+    /// <see cref="Signature"/> row is added to the change tracker and
+    /// returned to the caller, leaving the caller responsible for the
+    /// final save. Used by services that need the signature staged in
+    /// the same transaction as other entity changes (lifecycle
+    /// transitions, multi-entity updates) so the entire operation
+    /// commits or rolls back atomically (ADR 0008 C3 plan §A3).
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <see cref="SignAsync"/> is now a thin wrapper around this method
+    /// plus a SaveChanges; existing single-action callers and their
+    /// tests are unaffected.
+    /// </para>
+    /// </remarks>
+    /// <param name="signedEntityType">Canonical type name of the entity
+    /// being signed. Must not be null/empty/whitespace.</param>
+    /// <param name="signedEntityId">Canonical string form of the signed
+    /// entity's identifier. Must not be null/empty/whitespace.</param>
+    /// <param name="canonicalPayload">Stable canonical serialization of
+    /// the payload to bind. Must not be null/empty/whitespace.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The staged (but not yet persisted)
+    /// <see cref="Signature"/>. Its <c>Id</c> is fully populated; the
+    /// row is committed when the caller's next <c>SaveChanges</c> runs.</returns>
+    /// <exception cref="ArgumentException">Thrown when any string input
+    /// is null/empty/whitespace.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when no
+    /// authenticated user is available, or the current user holds a
+    /// number of roles other than exactly one.</exception>
+    Task<Signature> StageSignatureAsync(
+        string signedEntityType,
+        string signedEntityId,
+        string canonicalPayload,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Recomputes the SHA-256 of <paramref name="canonicalPayload"/> and
     /// compares it (constant-time) to <see cref="Signature.PayloadHash"/>.
     /// </summary>
