@@ -1180,3 +1180,184 @@ exercised" rule and the prior upgrade-path-migration entry's
 Working tree clean as of this entry's commit.
 
 ---
+
+## 2026-05-14 (Phase 2 C1) — Phase 2 Document Controller data layer (ADR 0008 C1)
+
+Single major commit on master since the previous handoff (this
+docs commit will be the second):
+
+- `25d1748` feat(data): Phase 2 Document Controller data layer
+  (ADR 0008 C1) — +5144/-50 across 38 files
+
+The commit opens the Phase 2 chunk chain laid out by ADR 0008
+(eight implementation commits + handoff). C1 is the data-layer
+foundation every later Phase 2 commit builds on: seven new
+domain entities, seven EF configurations, one migration that
+creates the tables and seeds the document permission catalog +
+default QualityManager role, plus the SPEC §5.1 amendment
+verbatim from the ADR.
+
+### ADR 0008 status
+
+Flipped Proposed → Accepted with the dual-date stamp pattern
+established by ADR 0007 (`2026-05-14 (Proposed), 2026-05-14
+(Accepted)` — same-day in this case but the dual stamp is
+preserved for audit-trail consistency). SPEC.md §5.1 replaced
+verbatim with the ADR's amendment text; revision bumped 3.3 →
+3.4 with a descriptive Revision History row covering the
+state-machine refinements, assigned-reviewer model,
+permissions catalog, retraining cascade as
+`DocumentRevisionApprovedEvent`, and the seeded QualityManager
+role's deliberate omission of `Document.AssignReviewers`.
+
+### Test count progression
+
+| Stop point | Count | Delta | New tests |
+|---|---|---|---|
+| Post-grooming (commit 820110b) | 295 | — | baseline |
+| Post-this-commit | 358 | +63 | 46 entity unit tests across 7 files in `Unit/Domain/Entities/Documents/`; 11 CRUD integration tests in `DocumentControllerBasicCrudTests`; 9 migration-seed tests in `DocumentControllerMigrationSeedTests`; minor adjustments to 6 pre-existing tests for Phase 2 coexistence |
+
+5/5 stress at 100% run-level pass rate. No new compiler
+warnings; one type-level CA1720 suppression on
+`DocumentReviewAssignmentStatus` for the `Signed` enum value,
+mirroring the CA1711 precedent for the `Permission` entity in
+ADR 0007.
+
+### Seed-data test scoping lesson worth pinning
+
+Phase 2's commit forced adjustments to six pre-existing tests
+because each made an assumption about the *totality* of seeded
+data that no longer holds once a new phase grows the catalog.
+The specific cases:
+
+- **Phase 1's `PermissionsMigrationSeedTests`** assumed all
+  permissions were Phase 1's eleven (e.g., `rows.Should().Be(11)`,
+  `seededNames.Should().BeEquivalentTo(PermissionNames.All)`).
+  Rescoped each assertion to `Category=="System"` so Phase 2's
+  document-category catalog co-exists without breaking the
+  Phase-1-specific invariants.
+- **`LinkLegacyAdministratorMigrationTests`** called
+  `ctx.Database.Migrate()` to apply the migration under test —
+  but `Database.Migrate()` applies *all pending*, which now
+  includes Phase 2's `AddDocumentControllerTables` and its
+  seeded QM RolePermission rows. Switched to
+  `IMigrator.Migrate("LinkLegacyAdministratorToSystemPermissions")`
+  so the test applies only the targeted migration.
+- **`BootstrapServiceTests`** asserted `roles.Should().ContainSingle()`
+  and `rolePermissions.Should().HaveCount(11)` against the
+  global tables — both implicitly assumed bootstrap was the
+  only writer of Roles/RolePermissions. Phase 2's seeded
+  QualityManager role + its 12 RolePermission rows broke the
+  global-totality view. Scoped each assertion to the
+  Administrator-role-id's rows.
+- **Three tests** (`BasicCrudTests`, `IdentityForeignKeyTests`,
+  `AuthenticationServiceTests`) inserted an ad-hoc Role with
+  the literal name `"QualityManager"`. The Phase 2 seed
+  inserts a Role with that exact name, and `Roles.Name` has a
+  unique index — `UNIQUE constraint failed: Roles.Name`.
+  Renamed the test fixtures to `QualityManagerRoundTrip`,
+  `QualityManagerFkTest`, `QualityManagerAuthTest`
+  respectively. The seeded row is reality from now on;
+  test-only roles need disambiguated names.
+
+**The lesson:** seed-data assertions must be scoped narrowly to
+the data they care about (specific `Category`, specific `Name`,
+specific `RoleId`), never universal claims about totals or
+first-and-only-seeded-instance. Future phases will keep growing
+the seed catalog; broad-scope assertions break each time.
+
+The narrowing is also philosophically the right shape — a test
+that asserts "the QM role exists with the expected permission
+set" is making a stronger and more useful claim than a test
+that asserts "exactly one operational role exists." The
+totality framing was always over-reach; Phase 2 just forced the
+issue.
+
+Adding to the project's standing protocol for grooming work and
+for every future phase's data layer.
+
+### Smoke verification protocol refinement
+
+Smoke is not a default ritual for every commit — it is a tool
+deployed when there is a specific gap between what tests cover
+and what real-host behavior would reveal. For C1, the relevant
+gap was *migration applies cleanly against the dev DB* (which
+has accumulated all prior migrations + the upgrade-path
+migration; integration tests run against fresh SQLite, which
+has no migration history to react against). That part of smoke
+ran and passed: migration applied at 21:10:31.896, all seed
+data verified at the live-DB level, Phase 1 Administrator's 11
+RolePermission rows unchanged.
+
+The sign-in-regression piece of the proposed smoke was NOT
+driven manually. Justified: C1 touched zero Phase 1 auth code
+paths, and `AuthenticationServiceTests` covers real-SQLite
+sign-in (success, lockout, multi-role, snapshot-population)
+more thoroughly than a single manual click could. Skipping the
+ritual saved time without losing coverage.
+
+**The standing rule:** smoke is risk-driven, not commit-driven.
+For each commit, identify the specific risk smoke would
+mitigate that integration tests cannot; if none, skip. If some,
+drive it. Adding to the standing smoke protocol alongside the
+prior C3 "verify state-on-disk", the upgrade-path commit's
+"complete move-aside-and-restore cycles fully", the grooming
+commit's "presence-check EventIds not just format", and the
+role-correction rule pinned this session: **user drives WPF
+gestures; both inspect via PowerShell/`sqlite3`**.
+
+### Phase 2 commit chain status
+
+| Commit | Status | Scope |
+|---|---|---|
+| **C1 (data)** | ✓ this commit | Domain entities, EF configs, migration, SPEC §5.1 amendment, ADR 0008 Accepted |
+| C2 (vault) | next | `IVaultService` — content-addressed file storage |
+| C3 (lifecycle) | pending | `IDocumentLifecycleService` + `IDomainEventDispatcher` + `DocumentRevisionApprovedEvent` |
+| C4 (sign-as-role) | pending | ADR for signature dialog UX; initial dialog scaffolding |
+| C5 (PDF viewer) | pending | ADR for viewer dependency; integration into detail UI |
+| C6 (UI shell) | pending | Document list/detail VMs; submit + review dialogs |
+| C7 (lock inspector + print) | pending | Lock-reason chains, print stylesheets |
+| C8 (external library) | pending | ExternalDocument CRUD, compatibility flagging |
+| C9 (handoff) | pending | Phase 2 closing handoff note |
+
+C1 successfully opens the chain. Every subsequent C2-C8 commit
+will sit on top of the data shape this commit established;
+schema drift between C1 and later commits would be a real cost,
+so the data layer's choices here are now load-bearing.
+
+### Phase 1 Follow-Ups (carry-forward unchanged)
+
+No changes to the open list in this commit. As of the prior
+(grooming) handoff:
+
+- **"Sign-as-which-role" UX ADR** — becomes concrete in C4
+  (signature dialog scaffolding). The
+  `SignatureService.Roles.Single()` throw fires the first time
+  C4 lands; the UX ADR pairs with that work.
+- **EventId 1001 missing on wrong-password** — deferred; not
+  C1's scope.
+- **Raw `Log.Information` empty SourceContext** in
+  `OnStartup` / `OnExit` — deferred; cosmetic.
+- All eight carry-overs from prior handoffs (#1 sign-in audit,
+  #2 PreviousLoginUtc, #3 navigation audit, #4 pulse tint
+  tokens, #6 connection-string config, #7 AsyncLocal
+  correlation, #8 inert `Serilog.Sinks.File`, #11 owned-type
+  audit ADR).
+
+### Next-direction (next session pick)
+
+**C2 — `IVaultService`** per ADR 0008's chunking. Phase 2 C1
+established the data shape; C2 builds the content-addressed
+file storage service that the lifecycle service (C3) and UI
+(C6) both consume for blob read/write/dedup. Scope is pure
+service-layer with tests against a tempdir vault root —
+contained, low surface area, well-bounded. The
+`VaultBlob` entity from C1 is already in place; C2 wires the
+service over it.
+
+Requires its own implementation-plan-first review cycle per the
+standing protocol.
+
+Working tree clean as of this entry's commit.
+
+---
