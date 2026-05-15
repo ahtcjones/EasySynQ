@@ -1361,3 +1361,201 @@ standing protocol.
 Working tree clean as of this entry's commit.
 
 ---
+
+## 2026-05-14 (Phase 2 C2) — IVaultService (Phase 2 Document Controller, ADR 0008 C2)
+
+Single commit on master since the previous handoff (this docs
+commit will be the second):
+
+- `f31b378` feat(services): IVaultService — content-addressed file
+  storage (ADR 0008 C2)
+
+Second commit in the Phase 2 chunk chain. Smaller than C1 — pure
+service layer plus one focused permission-introducing migration. C2
+builds the content-addressed file storage service that the
+lifecycle service (C3) and UI (C6) will consume for blob
+read/write/dedup; the VaultBlob entity itself was created in C1.
+
+### Test count progression
+
+| Stop point | Count | Delta | New tests |
+|---|---|---|---|
+| Post-C1 (commit 25d1748) | 358 | — | baseline |
+| Post-this-commit | 377 | +19 | 14 `VaultServiceTests` (store/retrieve/exists/delete happy paths; corruption injection; missing-file; soft-deleted-row; permission-gate enforcement; audit-row pinning; sanity dedup-only-for-identical-content); 4 `AddVaultPhysicalDeletePermissionMigrationSeedTests` (deterministic Permission row, name in `PermissionNames.All`, fresh-install skip-link, System-category count) |
+
+5/5 stress at 100% run-level pass rate. Build clean.
+
+### New permission introduced — Vault.PhysicalDelete
+
+Added to the System catalog and to `PermissionNames.All`. Seeded
+for Administrator on both install paths:
+
+- **Fresh install:** bootstrap picks it up automatically via
+  `PermissionNames.All` (now 12 entries, was 11). The
+  `AddVaultPhysicalDeletePermission` migration runs before
+  bootstrap, finds no Administrator role, skips the conditional
+  link insert. Bootstrap then writes the full 12 RolePermission
+  rows transactionally, including the Vault.PhysicalDelete link.
+- **Upgrade install:** the migration's conditional INSERT-SELECT
+  detects the pre-existing Administrator role and writes the
+  RolePermission link row directly (deterministic Id
+  `08400000-0000-0000-0000-000000000001`, attributed to
+  `CreatedBy = "system:migration"`). Mirrors
+  `LinkLegacyAdministratorToSystemPermissions`' upgrade-path shape
+  without the loud-failure trigger — there's no partial-state
+  concern for adding a single new permission.
+
+System-category count: 11 → 12. The XML doc on `PermissionNames.All`
+was updated to drop the "Phase 1 only" framing in favor of "all
+currently-defined system permissions that the bootstrap administrator
+should always have." The list grows as later phases add system-tier
+capabilities; the bootstrap path consumes it verbatim, so adding a
+name there is sufficient to roll a new permission into every fresh
+install's Administrator grants.
+
+### Architectural lesson worth pinning — historical vs. current counts
+
+Two ends of one principle surfaced in this commit, both as fixes to
+pre-existing tests:
+
+- **`LinkLegacyAdministratorMigrationTests`** was using
+  `PermissionNames.All.Count` as a stand-in for "the number of
+  permissions when the LinkLegacy migration ran" — but `All` grows
+  over time, so the count drifted from 11 to 12. Fix: introduce
+  `Phase1PermissionCountAtLinkLegacyTime = 11` as a frozen
+  historical constant. The constant deliberately does NOT update
+  when `PermissionNames.All` grows. An inline comment in the test
+  class explains the deliberate decoupling.
+- **`BootstrapServiceTests`** was using hard-coded literals (`11`,
+  `26`, `12`) to assert the bootstrap audit-row count, which is
+  actually computed at run time from however many system
+  permissions exist in `PermissionNames.All`. Fix: derive the
+  expected counts via a formula
+  (`expectedRowCount = 4 + 2 * systemPermissionCount`,
+  `RolePermission` count = `systemPermissionCount`,
+  `EffectiveDateRange` count = `1 + systemPermissionCount`). Future
+  system-permission additions don't require touching this test.
+
+The general principle:
+
+> **Assertions about a system's CURRENT state should be derived
+> from current code constants** so they grow naturally as the
+> system grows.
+> **Assertions about a system's HISTORICAL state at a specific
+> point in time should be frozen constants** so they don't drift
+> as the system grows past that point.
+
+Conflating the two is the failure mode the C1 handoff's seed-data-
+test-scoping lesson was pointing at; C2 surfaces a more specific
+articulation. The two rules combined give a clean shape:
+- "Phase 1's count at LinkLegacy commit time" → frozen.
+- "the current System-category total" → derived.
+
+Adding to the project's standing protocol for test-writing
+alongside the C1 lesson (narrow scoping over universal-totality
+assertions) and the prior smoke-protocol lessons.
+
+### Risk-driven smoke skip — now the working norm
+
+C2's smoke verification was skipped per the C1 handoff's risk-driven
+protocol. The real-filesystem risk surface (atomic rename, sharded
+directory creation, %LOCALAPPDATA% permissions) is within the
+documented contracts of `File.Move` / `Directory.CreateDirectory` /
+`FileStream`, and integration tests against tempdir vault roots
+exercise the same code paths.
+
+This is now twice in a row that smoke was skipped because tests
+genuinely cover the risk (C1's sign-in-regression check, C2's
+filesystem-behavior check). The risk-driven protocol from the C1
+handoff is the working norm now, not an exception. Worth recording
+explicitly so the next session doesn't default back to
+"smoke everything" out of habit.
+
+### Scope-creep observation — for the record
+
+C2 implementation included two improvements beyond the approved
+plan, neither problematic and both clearly better, but worth noting
+for pattern-awareness:
+
+- **`BootstrapServiceTests` refactor** from literal-update
+  (`11→12`, `26→28`, `12→13`) to derived-expression. The user had
+  explicitly flagged this as a "lurking maintainability issue, not
+  a C2 change" in the plan-approval response; the implementation
+  did it anyway because the larger context made it the natural
+  fix.
+- **`UnauthorizedOperationException.ForMissingPermission` factory**
+  beyond the standard three constructors the plan called for. A
+  small static-factory convenience that callers actually use
+  (`VaultService.PhysicalDeleteAsync` uses it directly).
+
+The working convention going forward: **flag X+Y in the
+implementation summary so it's visible at approval time, not as
+after-the-fact discovery**. Doing-then-noting works when Y is
+clearly better; flagging-then-doing scales better and respects the
+commit boundary as a meaningful unit. Captured to memory for future
+sessions.
+
+### Phase 2 commit chain status
+
+| Commit | Status | Scope |
+|---|---|---|
+| C1 (data) | ✓ `25d1748` | Domain entities, EF configs, migration, SPEC §5.1 amendment, ADR 0008 Accepted |
+| **C2 (vault)** | ✓ this commit | `IVaultService` — content-addressed file storage; Vault.PhysicalDelete permission |
+| C3 (lifecycle) | **next** | `IDocumentLifecycleService` + `IDomainEventDispatcher` + `DocumentRevisionApprovedEvent` |
+| C4 (sign-as-role) | pending | ADR for signature dialog UX; initial dialog scaffolding |
+| C5 (PDF viewer) | pending | ADR for viewer dependency; integration |
+| C6 (UI shell) | pending | Document list/detail VMs; submit + review dialogs |
+| C7 (lock inspector + print) | pending | Lock-reason chains, print stylesheets |
+| C8 (external library) | pending | ExternalDocument CRUD, compatibility flagging |
+| C9 (handoff) | pending | Phase 2 closing handoff note |
+
+### Phase 1 Follow-Ups (carry-forward unchanged)
+
+No changes to the open list in this commit. As of the prior C1
+handoff:
+
+- **"Sign-as-which-role" UX ADR** — becomes concrete in C4
+  (signature dialog scaffolding); the
+  `SignatureService.Roles.Single()` throw fires for any user
+  whose `Roles.Count != 1` — single-role users like the bootstrap
+  Administrator are unaffected, but as soon as multi-role users
+  exist (likely C3 test setup or C6 admin UI), the throw becomes
+  user-visible and the C4 ADR pairs with the work to handle it.
+- **EventId 1001 missing on wrong-password** — deferred.
+- **Raw `Log.Information` empty SourceContext** in
+  `OnStartup` / `OnExit` — deferred; cosmetic.
+- Eight carry-overs from prior handoffs (#1 sign-in audit, #2
+  PreviousLoginUtc, #3 navigation audit, #4 pulse tint tokens,
+  #6 connection-string config, #7 AsyncLocal correlation, #8
+  inert `Serilog.Sinks.File`, #11 owned-type audit ADR).
+
+### Next-direction (next session pick)
+
+**C3 — `IDocumentLifecycleService` + `IDomainEventDispatcher` +
+`DocumentRevisionApprovedEvent`** per ADR 0008's chunking. C3 is
+more substantial than C2 — it introduces:
+
+- The lifecycle state machine (Draft → InReview → Approved
+  with bidirectional Draft↔InReview; Approved → Active derived
+  at read time; Active → Superseded on new approval; Active →
+  Archived on explicit retire). Eight transitions, each with
+  audit-row assertions.
+- The domain-event publication infrastructure (`IDomainEventDispatcher`)
+  that Phase 4 will consume to wire the retraining cascade
+  transactionally with revision approval.
+- The first signature-consuming code path — author submission
+  signature plus per-reviewer approval signatures. Whether
+  `SignatureService.Roles.Single()` actually fires in C3 depends
+  on test setup: single-role users (the bootstrap Administrator,
+  or any test fixture seeded that way) sign cleanly; multi-role
+  users trigger the throw. C3 will exercise the signing path at
+  minimum with single-role coverage; multi-role coverage is
+  contingent on C4's ADR landing first.
+
+C3 deserves the careful implementation-plan-first review cycle —
+larger surface, more transition cases, first concrete consumer of
+the C1 entities and the C2 vault service.
+
+Working tree clean as of this entry's commit.
+
+---
