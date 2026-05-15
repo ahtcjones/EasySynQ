@@ -997,3 +997,186 @@ will check authorization against `_currentUser.Permissions`.
 Working tree clean as of this entry's commit.
 
 ---
+
+## 2026-05-14 (grooming) — Phase 1 Follow-Up grooming pass (Serilog file-sink retention + template extraction)
+
+Single commit on master since the previous handoff (this docs
+commit will be the second):
+
+- `820110b` chore(host): Serilog file-sink retention;
+  consolidate output template
+
+One Phase 1 Follow-Up resolved with code (#9 file-sink
+retention). Two closed without code on premise-no-longer-holds
+grounds (#10 EF Core log-noise tightening, #12 EventId in
+raw-log output). The grooming pass also surfaced a real
+observability regression — EventId 1001 is silent on
+wrong-password sign-in attempts — added to the open list for
+the next session to investigate.
+
+### Test count progression
+
+| Stop point | Count | Delta | New tests |
+|---|---|---|---|
+| Post-upgrade-path-migration (commit 2107ac9) | 294 | — | baseline |
+| Post-this-commit | 295 | +1 | `AppSerilogOutputTemplateTests` — structural shape assertion routed through the real `SerilogLoggerProvider` pipeline |
+
+5/5 stress at 100% run-level pass rate.
+
+### Phase 1 Follow-Ups grooming
+
+**Resolved in this commit:**
+
+- ~~#9 Serilog file-sink retention~~ — `retainedFileCountLimit:
+  90` added to `WriteTo.File` in
+  `App.xaml.cs:ConfigureSerilog`. ~90 days of history at the
+  daily roll cadence. Inline comment notes the file sink is
+  operational/diagnostic only — compliance evidence lives in
+  the audit log table per SPEC §7.3, not in these files.
+
+**Closed without code (premise no longer holds):**
+
+- ~~#10 EF Core log-noise tightening~~ — already covered by
+  the existing `MinimumLevel.Override("Microsoft", Warning)`
+  via Serilog's longest-prefix matching, which applies to
+  `Microsoft.EntityFrameworkCore.*` by inheritance. A more
+  specific `Microsoft.EntityFrameworkCore` override at the
+  same level would be redundant. The "auth failures produce
+  multiple [ERR] lines from EF Core" pattern referenced in
+  older handoffs no longer reproduces against the current
+  config — today's log shows only one [ERR] line from EF
+  Core, and that one is the migration-guard's intentional
+  `RAISE(ABORT)` (genuine error, correctly surfaced, not
+  noise).
+
+- ~~#12 EventId in raw-log output~~ — not feasible as
+  originally conceived. Serilog's output-template grammar
+  does not support nested property access: `{EventId.Id}`
+  cannot reach into the `StructureValue` that
+  `Serilog.Extensions.Logging`'s adapter attaches to every
+  `[LoggerMessage]` emit (the parser treats `EventId.Id` as
+  a single literal identifier and looks up a property by
+  that exact name, which doesn't exist). Bare `{EventId}`
+  renders the verbose structured form
+  `[{ Id: 6001, Name: "LogSignInSucceeded" }]`, which
+  uglifies every line in raw-text scenarios. The `EventId`
+  property remains on each `LogEvent` and is accessible to
+  structured-log consumers (JSON sink, Seq, future
+  aggregators); only the raw text rendering omits it. The
+  file-sink output template was extracted to an internal
+  const `App.FileSinkOutputTemplate` so future format work
+  has a single anchor, even though the EventId token itself
+  is not part of it.
+
+**Still open (carry forward from prior handoffs):**
+
+- **"Sign-as-which-role" UX ADR** (from 82455aa) — defer
+  until the first Phase 2 feature consuming
+  `ISignatureService` is concrete.
+
+- All carry-overs from prior open lists (numbering retained
+  for grep continuity — #5 remains gone, superseded by ADR
+  0007; #9, #10, #12 are now also gone, removed in this
+  commit; #1 sign-in audit, #2 PreviousLoginUtc, #3
+  navigation audit, #4 pulse tint tokens, #6
+  connection-string config, #7 AsyncLocal correlation
+  scope, #8 inert `Serilog.Sinks.File` reference, #11
+  owned-type audit ADR remain).
+
+**Newly added:**
+
+- **EventId 1001 (LoginViewModel sign-in failure) missing
+  from log on wrong-password attempts.** Surfaced during
+  this commit's smoke verification — the user ran the
+  failed-sign-in step and no EventId 1001 line appeared in
+  the log. The EventId is allocated in the EventId table
+  ("LoginViewModel sign-in failure (E1, instance partial)")
+  so the wiring was at least started in E1, but it is
+  currently silent in production. Possible causes:
+  (a) wiring was incomplete from E1 — instance-partial
+  declared but the emit path was never fully wired into the
+  failure case; (b) the emit was wired and a later commit
+  broke it (ADR 0007's C2 auth-wiring rewrite is the
+  largest candidate); (c) the emit fires at a level below
+  the file sink's `MinimumLevel`. Investigation requires
+  reading the current `LoginViewModel` and
+  `AuthenticationService` code. Recommended fix: locate the
+  intended emit site, restore or complete the wiring, and
+  add an integration test that exercises the failed-sign-in
+  log path so this regression cannot recur silently.
+  Recommended priority: do before Phase 2, since Phase 2
+  work will assume the observability surface is correct.
+
+- **Raw `Log.Information` emits in `OnStartup` / `OnExit`
+  render with empty SourceContext** — text reads
+  `[INF] : EasySynQ starting…` (visible colon with no
+  source). Pre-existing behavior, mildly cosmetic. Natural
+  fix is to convert the two raw `Log.Information` calls to
+  `[LoggerMessage]` emits with their own EventIds (probably
+  in the 5xxx App-tier range). Low priority; mention only.
+
+### Serilog output-template grammar learning worth pinning
+
+Serilog message templates (the first argument to
+`Log.Information(messageTemplate, args)`, parsed by
+`MessageTemplateParser`) DO support nested property access via
+dotted paths — e.g., `"User {User.Username} signed in"` works.
+
+Serilog output templates (the format string passed to
+`MessageTemplateTextFormatter`, used by the file/console/text
+sinks) DO NOT. The output-template property-name parser treats
+`EventId.Id` as a single literal identifier and looks up a
+property by that exact name; it does not destructure into the
+`EventId` structure value. Empirical confirmation:
+`AppSerilogOutputTemplateTests` initially asserted `[1001]`
+against a `{EventId.Id}` template token, captured the LogEvent
+through the real `SerilogLoggerProvider` pipeline, and rendered
+empty brackets — the property bag had
+`EventId={ Id: 1001, Name: "TestEvent" }` (destructured by the
+adapter), but the dotted token couldn't reach into it.
+
+Workarounds exist (a custom `ILogEventEnricher` that flattens
+to a scalar sibling property, e.g., `EventIdId`, then template
+uses `[{EventIdId}]`) but cost net-new production code for a
+cosmetic gain. The decision for #12 was to accept the
+limitation and document it; the rationale is captured at the
+`App.FileSinkOutputTemplate` constant's XML doc so future
+grooming work doesn't re-attempt the same dead-end.
+
+### Smoke verification protocol learning to pin
+
+When a commit changes log output, the smoke checklist should
+explicitly verify the **presence** of EventIds expected from
+every log-emitting path exercised, not just verify the
+**format** of the IDs that do appear. This commit's smoke
+caught the format issue with EventId 6001 (rendered as
+structured-EventId blob under the initial `{EventId}`
+template) but ALSO surfaced the absence of EventId 1001 —
+neither would have surfaced from "does the format look
+right?" alone. Format-only checking is necessary but not
+sufficient; presence-checking against the expected EventId
+set per smoke step is what closes the gap.
+
+Adding to the project's standing smoke protocol alongside the
+C3 entry's "verify state-on-disk before claiming a flow was
+exercised" rule and the prior upgrade-path-migration entry's
+"complete move-aside-and-restore cycles fully" rule.
+
+### Next-direction options (next session picks)
+
+1. **EventId 1001 investigation + fix** per the newly-added
+   Follow-Up above. Small, well-scoped, naturally
+   pre-Phase-2 since the observability surface should be
+   correct before Phase 2 work starts writing more EventIds.
+2. **Further Phase 1 Follow-Up grooming.** #6
+   (connection-string promotion to configuration) is the
+   largest remaining lightish item; introduces a new
+   dependency (`Microsoft.Extensions.Configuration.Json`)
+   which needs explicit approval per CLAUDE.md rule 9.
+3. **Phase 2 Document Controller** per SPEC §9. New
+   architectural territory; largest scope; benefits from a
+   fresh session with §9 loaded.
+
+Working tree clean as of this entry's commit.
+
+---
