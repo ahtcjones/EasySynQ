@@ -1559,3 +1559,235 @@ the C1 entities and the C2 vault service.
 Working tree clean as of this entry's commit.
 
 ---
+
+## 2026-05-15 — IDocumentLifecycleService + IDomainEventDispatcher (Phase 2 Document Controller, ADR 0008 C3)
+
+Single commit on master since the previous handoff (this docs
+commit will be the second):
+
+- `0ae4317` feat(services): IDocumentLifecycleService +
+  IDomainEventDispatcher (ADR 0008 C3)
+
+Third commit in the Phase 2 chunk chain. Largest commit of Phase 2
+to date by both test-count growth and surface area: the lifecycle
+state machine on Documents and DocumentRevisions (Submit,
+ReturnToDraft, SignAsReviewer, Retire), the domain-event
+publication infrastructure that Phase 4 will consume for the
+retraining cascade, the first DocumentRevisionApprovedEvent
+published transactionally with the approval that produced it, and
+a public-API expansion on Phase 1's SignatureService to support
+multi-entity transactions.
+
+### Test count progression
+
+| Stop point | Count | Delta | New tests |
+|---|---|---|---|
+| Post-C2 (commit f31b378) | 377 | — | baseline |
+| Post-this-commit | 459 | +82 | 42 unit (DocumentRetireTests, DocumentRevisionLifecycleMethodTests, DocumentReviewAssignmentLifecycleTests, DomainEventDispatcherTests); 40 integration (DocumentRevisionRepositoryTests, DomainEventDispatchInterceptorTests, DocumentLifecycleServiceTests) |
+
+Test stability per CLAUDE.md: 5 consecutive `dotnet test` runs at
+459/459 each, 100% run-level pass rate.
+`scripts/stress-test.ps1` 30-iteration run at 100%. Build clean,
+0 warnings 0 errors.
+
+### Architectural lesson worth pinning — stored state is the source of truth
+
+Q9 in the C3 plan was a genuine architectural fork. When a final
+reviewer signs Rev B and Rev A is currently Active, two
+implementations are defensible:
+
+- **Option A — defer supersede until Rev B's effective date.**
+  Preserves the operational intuition "Rev A stays Active until
+  Rev B kicks in." The cost: while Rev B sits between approval and
+  effective date, `Rev A.Lifecycle == Approved` (still) but the
+  as-of resolver treats Rev A as not-Active. Stored value
+  disagrees with derived value.
+- **Option B — supersede immediately at Rev B's approval (chosen).**
+  Stored state is honest. `Rev A.Lifecycle = Superseded` and
+  `Rev B.Lifecycle = Approved` the moment the final reviewer
+  signs. Between Rev B's approval and Rev B's `EffectiveFromUtc`,
+  the as-of resolver returns null — neither revision is currently
+  Active. The operational answer "no currently-active revision;
+  old one superseded, new one not yet effective" is the correct
+  one to surface; UI in C6 will render this as "Approved
+  (effective YYYY-MM-DD)" with no current Active highlight.
+
+The general principle:
+
+> **When stored state and derived state could disagree, stored
+> state wins.** A documented gap window is preferable to a stored
+> value that lies about reality.
+
+This reinforces ADR 0008's earlier choice to make the "Active"
+sub-state itself derived rather than stored — both decisions live
+under the same invariant. Adding to the project's standing
+protocol for state-machine design alongside the prior lessons
+(narrow-scoping over universal-totality, frozen-vs-derived
+counts, risk-driven smoke, smoke-protocol roles, scope-creep
+flag-first).
+
+The chosen path is also the cleaner write semantic — one
+transaction, one CorrelationId, coherent audit trail. That's
+what an external assessor wants.
+
+### Test-infrastructure pattern worth pinning — singleton-in-tests for cross-scope coordination
+
+The `DomainEventDispatcher` is per-scope in production but is
+registered as a singleton in BOTH the prep container (which
+captures `DbContextOptions` and its interceptors) and the runtime
+container (where the lifecycle service resolves the dispatcher).
+Without this, the captured interceptor's dispatcher and the
+service's dispatcher are distinct instances and the queue never
+coordinates — events enqueued by the service are invisible to the
+interceptor's drain.
+
+`RecordingDomainEventDispatcher` (in `TestDoubles.cs`) wraps a
+real `DomainEventDispatcher` with capture-on-Enqueue. Tests
+inspect `EventDispatcher.Recorded` to assert publication without
+needing to register a real handler or re-implement dispatch
+semantics. The pattern is reusable for any future cross-scope-
+coordinated service that the test base needs both interceptor-
+side and service-side access to.
+
+The lifetime divergence (singleton in tests, scoped in
+production) is documented in `RecordingDomainEventDispatcher`
+class remarks and is acceptable because the dispatcher's queue is
+drained by every `SaveChanges` — within a test, the queue is
+empty between operations the same way it is between scopes in
+production.
+
+Recording the pattern here (not just in the test helper's class
+remarks) so it is discoverable when the next cross-scope-
+coordinated service appears.
+
+### SignatureService public-API expansion — flag-first convention working
+
+`ISignatureService` gained `StageSignatureAsync` (stage the
+`Signature` row without calling `SaveChanges`, return it to the
+caller). `SignAsync` is now a thin wrapper around
+`StageSignatureAsync` plus a `SaveChanges`. The eight existing
+`SignatureServiceTests` continue to exercise the wrapper
+unchanged.
+
+The motivation: lifecycle transitions need signatures composed
+into the same `SaveChanges` as the surrounding entity updates
+(revision lifecycle change + assignment row updates) so the
+entire operation commits or rolls back atomically. The Phase 1
+`SignAsync` shape (which calls SaveChanges itself) cannot
+compose into a multi-entity transaction.
+
+Per the C2 handoff's scope-creep convention, this expansion was
+flagged at C3 plan-approval time AND again at implementation-
+summary time, not discovered after-the-fact. The convention is
+working as designed — the user could veto the public-API change
+before any code landed; the implementation didn't drift past the
+approved scope; the commit message surfaces it explicitly. Worth
+recording that the convention is now consistently practiced
+across two consecutive phases.
+
+### Audit-row count formulas — derived from N
+
+Per-transition audit-row counts in
+`DocumentLifecycleServiceTests` are pinned as derived expressions
+over `N` (reviewer count), per the C2 handoff's
+historical-vs-current-counts lesson:
+
+| Operation | Audit row count | Composition |
+|---|---|---|
+| Submit | `2 + N` | revision Update + Signature Insert + N assignment Inserts |
+| ReturnToDraft | `1 + N` | revision Update + N assignment Updates |
+| Sign non-final | `2` | Signature Insert + assignment Update |
+| Sign final, no prior Active | `3` | Signature + assignment + revision |
+| Sign final, with prior Active | `4` | Signature + assignment + new revision + prior revision |
+| Retire | `3` | Signature + Document + revision |
+
+No hard-coded literals. Future reviewer-count variations don't
+require touching the tests. Future audit-row schema changes do
+(and should fail loudly when they happen, exposing the gap before
+silently miscounting compliance evidence).
+
+### Risk-driven smoke skip — third consecutive commit
+
+Smoke verification was skipped per the C1 handoff's risk-driven
+protocol. C3 is pure service layer; the integration tests against
+real SQLite + the real interceptor pipeline exercise the
+lifecycle state machine, event dispatch, audit-row generation,
+and event publication end-to-end. The signature pipeline,
+permission gates, and audit interceptor were already verified by
+prior commits. No real-host risk gap remained for smoke to close.
+
+This is the third commit in a row (C1's sign-in regression check,
+C2's filesystem-behavior check, now C3's lifecycle and event
+dispatch) where smoke was skipped because the integration tests
+genuinely cover the risk surface. The risk-driven protocol from
+the C1 handoff is now consistent practice across the Phase 2
+chunk chain, not an exception. Smoke remains in the toolkit when
+the WPF host or filesystem behavior is the actual risk surface
+(C5's PDF viewer, C6's UI shell, the Phase 2 closing smoke after
+C8); for service-layer commits where integration tests cover the
+risk equivalently, skipping is the working norm.
+
+### Phase 2 commit chain status
+
+| Commit | Status | Scope |
+|---|---|---|
+| C1 (data) | ✓ `25d1748` | Domain entities, EF configs, migration, SPEC §5.1 amendment, ADR 0008 Accepted |
+| C2 (vault) | ✓ `f31b378` | `IVaultService` — content-addressed file storage; `Vault.PhysicalDelete` permission |
+| **C3 (lifecycle)** | ✓ this commit | `IDocumentLifecycleService` + `IDomainEventDispatcher` + `DocumentRevisionApprovedEvent`; SignatureService gains `StageSignatureAsync` |
+| C4 (sign-as-role) | **next** | ADR for signature dialog UX; initial dialog scaffolding |
+| C5 (PDF viewer) | pending | ADR for viewer dependency; integration |
+| C6 (UI shell) | pending | Document list/detail VMs; submit + review dialogs |
+| C7 (lock inspector + print) | pending | Lock-reason chains, print stylesheets |
+| C8 (external library) | pending | ExternalDocument CRUD, compatibility flagging |
+| C9 (handoff) | pending | Phase 2 closing handoff note |
+
+C3 was the largest single commit of the chain by surface area
+and test-count growth. The remaining C4–C8 commits are smaller
+in scope (UI scaffolding, viewer integration, individual feature
+surfaces); each still earns its own implementation-plan-first
+review cycle but none should match C3's substance.
+
+### Phase 1 Follow-Ups (carry-forward unchanged)
+
+No changes to the open list in this commit. As of the prior C2
+handoff:
+
+- **"Sign-as-which-role" UX ADR** — becomes concrete in C4
+  (signature dialog scaffolding). C3's tests deliberately use
+  single-role users so `SignatureService.Roles.Single()` never
+  fires; the throw becomes user-visible the first time a
+  multi-role user attempts to sign through the C4 dialog, which
+  is the C4 trigger.
+- **EventId 1001 missing on wrong-password** — deferred.
+- **Raw `Log.Information` empty SourceContext** in `OnStartup`
+  / `OnExit` — deferred; cosmetic.
+- Eight carry-overs from prior handoffs (#1 sign-in audit, #2
+  PreviousLoginUtc, #3 navigation audit, #4 pulse tint tokens,
+  #6 connection-string config, #7 AsyncLocal correlation, #8
+  inert `Serilog.Sinks.File`, #11 owned-type audit ADR).
+
+### Next-direction (next session pick)
+
+**C4 — sign-as-which-role ADR + signature dialog scaffolding.**
+Two pieces:
+
+- **ADR (likely 0009)** for the signature dialog UX. Decides how
+  multi-role users pick which role they're signing as — dropdown
+  picker, modal-on-sign, organizational default with override,
+  or some combination. Paired with the implementation commit per
+  ADR 0007 / ADR 0008 precedent (Proposed → Accepted dual-stamp
+  in the same commit).
+- **Initial dialog scaffolding.** Single-role users sign without
+  prompt (matches current behavior — `SignatureService.Roles.Single()`
+  succeeds). Multi-role users get the picker UX the ADR
+  specifies; the throw is replaced by the picker for that
+  population.
+
+C4 is meaningfully smaller than C3 — ADR drafting plus dialog
+scaffolding, no state-machine work, no new entities, no new
+migration. Worth a focused review cycle but not the planning
+investment C3 needed.
+
+Working tree clean as of this entry's commit.
+
+---
