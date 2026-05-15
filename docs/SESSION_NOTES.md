@@ -1791,3 +1791,231 @@ investment C3 needed.
 Working tree clean as of this entry's commit.
 
 ---
+
+## 2026-05-15 (Phase 2 C4) — SignAsRoleDialog scaffolding + sign-as-which-role plumbing (ADR 0009 / ADR 0008 C4)
+
+Single commit on master since the previous handoff (this docs
+commit will be the second):
+
+- `d506ee9` feat(ui): SignAsRoleDialog scaffolding +
+  sign-as-which-role plumbing (ADR 0009 / ADR 0008 C4) —
+  +1660/-136 across 38 files; 9 new files including ADR 0009 and
+  the entire `EasySynQ.UI/Signing/` folder.
+
+Fourth commit in the Phase 2 chunk chain. Forward-looking
+scaffolding by design — the picker dialog is built and the
+contract changes that depend on it are landed, but no production
+flow invokes the dialog yet (those land in C6 with the document
+detail view's signing surfaces).
+
+### ADR 0009 status
+
+Flipped Proposed → Accepted with the dual-date stamp
+`2026-05-15 (Proposed), 2026-05-15 (Accepted)` per ADR 0007 / 0008
+precedent. Same-day flip is the working norm for ADRs paired with
+their implementation commit.
+
+### Test count progression
+
+| Stop point | Count | Delta | New tests |
+|---|---|---|---|
+| Post-C3 (commit 0ae4317) | 459 | — | baseline |
+| Post-this-commit | 483 | +24 | 7 RoleResolutionServiceTests; 9 SignAsRoleViewModelTests; 7 PermissionRepository new-method tests; 1 SignatureServiceTests delta (added: role-not-held throw + multi-role success; removed: obsolete Roles.Single throw) |
+
+Test stability per CLAUDE.md: 5 consecutive `dotnet test` runs at
+483/483 each, 100% run-level pass rate. Build clean, 0 warnings 0
+errors.
+
+### Phase 1 Follow-Up CLOSED
+
+**"Sign-as-which-role" UX ADR** — open since the
+`2026-05-14 (Phase 2 C2)` handoff and carried through every
+handoff since (C1 → C2 → C3). Resolved by ADR 0009's specification
+and C4's implementation: the prior `SignatureService.Roles.Single()`
+fail-fast throw is gone, replaced by an explicit caller-supplied
+`signingAsRole` parameter and the role-not-held validation. Multi-
+role users sign through the picker dialog; single-role users
+auto-return without prompting. Removed from the carried-forward
+open list in this entry's Follow-Up section below.
+
+This is the third Phase 1 Follow-Up resolved by Phase 2 work to
+date — the role plumbing originally surfaced as Follow-Up #5
+(closed by ADR 0007 itself) and the upgrade-path migration
+(closed by its own commit) preceded it. The pattern: Phase 2's
+ADRs and commits naturally collapse Follow-Ups that were waiting
+for the right architectural surface to address them. Worth noting
+that the open list shrinks as Phase 2 lands, not just as Phase 2
+adds new entries.
+
+### Architectural pattern worth recording — ListBox-with-radio-template
+
+`SignAsRoleDialog` uses a `ListBox` with `SingleSelect` whose
+`ItemTemplate` renders each item as a `RadioButton` with
+`IsHitTestVisible="False"` and `IsChecked` bound one-way to the
+ancestor `ListBoxItem.IsSelected`. The selection authority lives
+in the ListBox; the radio buttons are visual affordances only.
+
+Why not per-item `IsChecked` two-way binding to a SelectedRole
+property:
+
+- Per-item `IsChecked` two-way binding can drift from the
+  ListBox's selection state under edge conditions (programmatic
+  selection changes, rapid keyboard navigation, focus race).
+  Keeping the ListBox as the single selection authority
+  eliminates the synchronization concern.
+- The `IsHitTestVisible="False"` on the RadioButton lets clicks
+  pass through to the ListBoxItem, which is what the ListBox
+  already handles natively.
+- `GroupName="SignAsRole"` on the RadioButton template still
+  enforces the single-checked visual even though the ListBox is
+  doing the actual work.
+
+Pattern is reusable for any future single-select dialog that
+wants the radio-button visual without the per-item binding
+plumbing. Recorded here so the next surface that needs it
+discovers the pattern by reading `SESSION_NOTES.md` rather than
+by reverse-engineering `SignAsRoleDialog.xaml`.
+
+### Risk-driven smoke skip — fourth consecutive commit
+
+Skipped per the now-standing protocol. C4 is forward-looking
+scaffolding by design (no production flow invokes the dialog
+until C6); test infrastructure changed only by adding a property
+to `MutableCurrentUserAccessor`, not by touching interceptor
+wiring or fixture base classes that the stress-test rule guards.
+Real dialog interaction smoke lands with C6 when the document
+detail view actually wires the prompter into signing flows.
+
+The risk-driven protocol is now consistent practice across C1
+(sign-in regression covered by integration tests), C2 (filesystem
+behavior covered by tempdir tests), C3 (lifecycle and event
+dispatch covered by the integration suite), and C4 (no production
+flow to drive). Four for four. The protocol is settled — the next
+commit that invokes smoke will be the one that has a real risk
+gap integration tests can't close, not a default ritual.
+
+### Phase 2 commit chain status
+
+| Commit | Status | Scope |
+|---|---|---|
+| C1 (data) | ✓ `25d1748` | Domain entities, EF configs, migration, SPEC §5.1 amendment, ADR 0008 Accepted |
+| C2 (vault) | ✓ `f31b378` | `IVaultService` — content-addressed file storage; `Vault.PhysicalDelete` permission |
+| C3 (lifecycle) | ✓ `0ae4317` | `IDocumentLifecycleService` + `IDomainEventDispatcher` + `DocumentRevisionApprovedEvent`; SignatureService gains `StageSignatureAsync` |
+| **C4 (sign-as-role)** | ✓ this commit | ADR 0009 Accepted; `IRoleResolutionService` + `ISignatureRolePrompter` + `SignAsRoleDialog`; `RolePermissions` plumbing across auth + bootstrap pipeline; SignatureService contract change |
+| C5 (PDF viewer) | **next** | ADR for viewer dependency choice; integration into document detail UI |
+| C6 (UI shell) | pending | Document list/detail VMs; submit + review dialogs; first consumer of the C4 prompter |
+| C7 (lock inspector + print) | pending | Lock-reason chains, print stylesheets |
+| C8 (external library) | pending | ExternalDocument CRUD, compatibility flagging |
+| C9 (handoff) | pending | Phase 2 closing handoff note |
+
+### Phase 2 milestone observation — half-shipped
+
+With C4 landed, Phase 2 is half-shipped (4 of 8 implementation
+commits). The core architectural decisions are all in place: the
+state machine (C3), the assigned-reviewer model (C3), the
+domain-event dispatch infrastructure (C3), the content-addressed
+vault (C2), and the signing-role mechanics (C4). The data shape
+(C1) underlies everything.
+
+C5–C8 are progressively more concrete:
+
+- **C5** introduces the project's first third-party UI dependency
+  (PDF viewer). Architecturally open in the sense that the choice
+  is genuinely undetermined; the ADR will weigh real options.
+- **C6** is the first surface that consumes everything Phase 2
+  has built — UI shell ties C2 (vault), C3 (lifecycle), C4
+  (prompter), C5 (viewer) into actual user-facing workflows. By
+  surface area large; by architectural openness small (the
+  pattern is "wire up the existing pieces").
+- **C7** is polish — lock inspector and print stylesheets layered
+  on the C6 surface.
+- **C8** introduces the External library mechanics — its own
+  small surface, doesn't disturb anything earlier.
+
+None of C5–C8 should reach the architectural-substance level of
+C3 (the largest commit). C5's ADR may match C3's planning
+investment because the dependency choice is consequential, but
+the implementation work after the choice is bounded. C6 will be
+larger by file count but mostly mechanical (ViewModels + Views
+following established patterns).
+
+### Phase 1 Follow-Ups (carry-forward, updated)
+
+Three Follow-Ups have now closed during Phase 2 work:
+
+- ~~#5 role plumbing on AuthenticatedUserEventArgs / accessor~~ —
+  resolved by ADR 0007 itself (Phase 1).
+- ~~Upgrade-path migration~~ — resolved by its own commit
+  (`2107ac9`, the LinkLegacyAdministratorToSystemPermissions
+  migration that closed the ADR 0007 upgrade-path gap).
+- ~~Sign-as-which-role UX ADR~~ — resolved by ADR 0009 and this
+  commit (see "Phase 1 Follow-Up CLOSED" above).
+
+Remaining open list (down from prior C3 handoff):
+
+- **EventId 1001 missing on wrong-password** — deferred.
+- **Raw `Log.Information` empty SourceContext** in `OnStartup`
+  / `OnExit` — deferred; cosmetic.
+- **#1 sign-in audit** — deferred.
+- **#2 PreviousLoginUtc** — deferred.
+- **#3 navigation audit** — deferred.
+- **#4 pulse tint tokens** — deferred.
+- **#6 connection-string config** — deferred.
+- **#7 AsyncLocal correlation** —
+  `UiAuditCorrelationProvider` AsyncLocal replacement for
+  multi-save logical operations. Worth flagging that this MAY
+  have become reachable through C3's lifecycle service: the
+  service performs multi-entity operations, but each lifecycle
+  method is a single `SaveChanges` containing many entity
+  changes. Not multi-`SaveChanges` per single logical operation
+  — which is the case the Follow-Up was concerned with. So #7
+  is still pending, NOT yet triggered. Will become reachable
+  when an operation needs `IUnitOfWork.ExecuteInTransactionAsync`
+  (multiple SaveChanges in one logical scope) — Phase 2 has no
+  such case; Phase 4's retraining cascade might or might not
+  cross that line depending on its handler's implementation.
+- **#8 inert `Serilog.Sinks.File`** — deferred.
+- **#11 owned-type audit ADR** — deferred.
+
+Eight remaining open carry-overs plus two cosmetic deferrals.
+The list shrunk by one this commit.
+
+### Next-direction (next session pick)
+
+**C5 — PDF viewer ADR + integration** per ADR 0008's chunking.
+First commit in the project that introduces a third-party UI
+dependency, which means the ADR carries the "no new dependencies
+without flagging it first" weight per CLAUDE.md non-negotiable
+rule 9.
+
+Candidate libraries each carry different licensing, integration,
+and maintenance profiles:
+
+- **PdfiumViewer** — wraps the Chromium PDFium engine; mature;
+  WPF-friendly; native dependency requires per-platform
+  binaries.
+- **WebView2 + PDF.js** — uses the Edge runtime that's likely
+  present on the deployment Windows machines; pure-managed wrapping
+  cost is low but the rendering surface is HTML, not native WPF
+  controls.
+- **PdfPig with custom rendering** — pure-managed; PdfPig's
+  primary use case is extraction, not rendering, so the
+  rendering layer would be substantial custom code.
+- **Commercial components** (PdfTron, Syncfusion, etc.) —
+  fully featured but each carries a license cost and a per-seat
+  / per-deploy redistribution constraint that may or may not fit
+  the small-shop deployment model.
+
+C5's ADR will need to weigh these explicitly — possibly the most
+"decision work" any Phase 2 ADR will do, since the choice is
+genuinely open rather than constrained by an existing pattern.
+Deserves the careful planning-first review cycle.
+
+The implementation work after the choice is bounded: integrate
+the chosen viewer into a document detail view stub, render a
+revision's vault blob, prove read-only behavior. C5's commit
+itself should be small once the ADR has settled the question.
+
+Working tree clean as of this entry's commit.
+
+---
