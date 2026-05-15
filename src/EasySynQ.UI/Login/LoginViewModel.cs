@@ -195,7 +195,8 @@ public partial class LoginViewModel : ObservableObject
                             success.User,
                             success.RequiresPasswordChange,
                             success.Roles,
-                            success.Permissions));
+                            success.Permissions,
+                            success.RolePermissions));
                     break;
 
                 case AuthenticationResult.InvalidCredentials:

@@ -285,7 +285,11 @@ public partial class BootstrapViewModel : ObservableObject
 
             BootstrapSucceeded?.Invoke(
                 this,
-                new BootstrapSucceededEventArgs(result.Administrator, result.Roles, result.Permissions));
+                new BootstrapSucceededEventArgs(
+                    result.Administrator,
+                    result.Roles,
+                    result.Permissions,
+                    result.RolePermissions));
         }
         catch (OperationCanceledException)
         {

@@ -28,7 +28,15 @@ namespace EasySynQ.Services.Bootstrap;
 /// <param name="Permissions">Permission names captured at bootstrap
 /// time — the eleven Phase 1 system permissions. Non-null; non-empty
 /// for the happy path.</param>
+/// <param name="RolePermissions">Per-role breakdown of role-derived
+/// permissions (ADR 0009). For the happy bootstrap path this is
+/// always <c>{ "Administrator" → PermissionNames.All }</c> — the
+/// bootstrap creates exactly one role and links every system
+/// permission to it. The signature dialog reads this map at sign-in
+/// to filter the picker; bootstrap returns it explicitly so the
+/// shell does not need a follow-up DB read.</param>
 public sealed record BootstrapResult(
     User Administrator,
     IReadOnlyCollection<string> Roles,
-    IReadOnlyCollection<string> Permissions);
+    IReadOnlyCollection<string> Permissions,
+    IReadOnlyDictionary<string, IReadOnlyCollection<string>> RolePermissions);

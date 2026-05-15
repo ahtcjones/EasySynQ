@@ -46,6 +46,13 @@ public sealed class AuthenticatedUserEventArgs : EventArgs
     /// </summary>
     public IReadOnlyCollection<string> Permissions { get; }
 
+    /// <summary>
+    /// Per-role breakdown of role-derived permissions captured at
+    /// sign-in (ADR 0009). Used by the signature dialog to filter the
+    /// role picker. Non-null; may be empty.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyCollection<string>> RolePermissions { get; }
+
     /// <summary>Constructs the event payload.</summary>
     /// <param name="user">Authenticated user. Must not be
     /// <see langword="null"/>.</param>
@@ -54,22 +61,28 @@ public sealed class AuthenticatedUserEventArgs : EventArgs
     /// <see langword="null"/>; may be empty.</param>
     /// <param name="permissions">Permission-name snapshot. Must not be
     /// <see langword="null"/>; may be empty.</param>
+    /// <param name="rolePermissions">Per-role permission breakdown
+    /// (ADR 0009). Must not be <see langword="null"/>; may be empty.</param>
     /// <exception cref="ArgumentNullException">Thrown when
-    /// <paramref name="user"/>, <paramref name="roles"/>, or
-    /// <paramref name="permissions"/> is
+    /// <paramref name="user"/>, <paramref name="roles"/>,
+    /// <paramref name="permissions"/>, or
+    /// <paramref name="rolePermissions"/> is
     /// <see langword="null"/>.</exception>
     public AuthenticatedUserEventArgs(
         User user,
         bool requiresPasswordChange,
         IReadOnlyCollection<string> roles,
-        IReadOnlyCollection<string> permissions)
+        IReadOnlyCollection<string> permissions,
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>> rolePermissions)
     {
         ArgumentNullException.ThrowIfNull(user);
         ArgumentNullException.ThrowIfNull(roles);
         ArgumentNullException.ThrowIfNull(permissions);
+        ArgumentNullException.ThrowIfNull(rolePermissions);
         User = user;
         RequiresPasswordChange = requiresPasswordChange;
         Roles = roles;
         Permissions = permissions;
+        RolePermissions = rolePermissions;
     }
 }

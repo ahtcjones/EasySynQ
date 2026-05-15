@@ -254,6 +254,12 @@ public class AuthenticationServiceTests : ServiceIntegrationTestBase
         // Union of role-derived ("Doc.Approve") and direct
         // ("Audit.Inspect") grants, deduplicated.
         success.Permissions.Should().BeEquivalentTo("Doc.Approve", "Audit.Inspect");
+        // ADR 0009: RolePermissions covers role-derived permissions
+        // only — the direct "Audit.Inspect" grant is NOT in the per-
+        // role map (it has no role to attach to).
+        success.RolePermissions.Should().ContainKey("QualityManagerAuthTest");
+        success.RolePermissions["QualityManagerAuthTest"]
+            .Should().BeEquivalentTo("Doc.Approve");
     }
 
     [Fact]
@@ -274,6 +280,8 @@ public class AuthenticationServiceTests : ServiceIntegrationTestBase
         success.Roles.Should().BeEmpty();
         success.Permissions.Should().NotBeNull();
         success.Permissions.Should().BeEmpty();
+        success.RolePermissions.Should().NotBeNull();
+        success.RolePermissions.Should().BeEmpty();
     }
 
     [Fact]

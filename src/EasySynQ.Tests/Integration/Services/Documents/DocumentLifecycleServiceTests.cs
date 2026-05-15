@@ -80,6 +80,15 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         CurrentUser.Username = $"author-{authorId:N}".Substring(0, 16);
         CurrentUser.Roles = [AuthorRole];
         CurrentUser.Permissions = AuthorPermissions.ToList();
+        // ADR 0009 — RolePermissions snapshot mirrors the flat
+        // Permissions: the author's only role grants every permission
+        // in AuthorPermissions. SignatureService validates that
+        // signingAsRole is a member of Roles; lifecycle methods now
+        // require this.
+        CurrentUser.RolePermissions = new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal)
+        {
+            [AuthorRole] = AuthorPermissions.ToList(),
+        };
     }
 
     /// <summary>Configures CurrentUser as the supplied "reviewer"
@@ -90,6 +99,10 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         CurrentUser.Username = $"rev-{reviewerId:N}".Substring(0, 16);
         CurrentUser.Roles = [ReviewerRole];
         CurrentUser.Permissions = ReviewerPermissions.ToList();
+        CurrentUser.RolePermissions = new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal)
+        {
+            [ReviewerRole] = ReviewerPermissions.ToList(),
+        };
     }
 
     private async Task<int> CountAuditRowsAsync(Guid? correlationId = null)
@@ -132,7 +145,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revisionId, [reviewerA, reviewerB], effectiveFromUtc: null, Ct);
+                revisionId, [reviewerA, reviewerB], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         }
 
         await using (var ctx = NewContext())
@@ -173,7 +186,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revisionId, [reviewer], effectiveFromUtc: null, Ct);
+                revisionId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         }
 
         // 2 + N where N = 1 → 3 rows.
@@ -193,7 +206,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revisionId, [reviewer], futureEffective, Ct);
+                revisionId, [reviewer], futureEffective, AuthorRole, Ct);
         }
 
         await using (var ctx = NewContext())
@@ -213,7 +226,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
 
         await using var scope = NewScope();
         Func<Task> act = async () => await Lifecycle(scope).SubmitForReviewAsync(
-            revisionId, [], effectiveFromUtc: null, Ct);
+            revisionId, [], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
 
         await act.Should().ThrowAsync<ArgumentException>()
             .WithMessage("*at least one reviewer*");
@@ -229,7 +242,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
 
         await using var scope = NewScope();
         Func<Task> act = async () => await Lifecycle(scope).SubmitForReviewAsync(
-            revisionId, [reviewer, reviewer], effectiveFromUtc: null, Ct);
+            revisionId, [reviewer, reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
 
         await act.Should().ThrowAsync<ArgumentException>()
             .WithMessage("*duplicate user IDs*");
@@ -244,7 +257,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
 
         await using var scope = NewScope();
         Func<Task> act = async () => await Lifecycle(scope).SubmitForReviewAsync(
-            revisionId, [authorId], effectiveFromUtc: null, Ct);
+            revisionId, [authorId], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
 
         await act.Should().ThrowAsync<ArgumentException>()
             .WithMessage("*Author cannot review their own document*");
@@ -263,7 +276,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
 
         await using var scope = NewScope();
         Func<Task> act = async () => await Lifecycle(scope).SubmitForReviewAsync(
-            revisionId, [Guid.NewGuid()], effectiveFromUtc: null, Ct);
+            revisionId, [Guid.NewGuid()], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
 
         var ex = (await act.Should().ThrowAsync<UnauthorizedOperationException>()).Subject.Single();
         ex.PermissionName.Should().Be(PermissionNames.DocumentSubmitForReview);
@@ -281,7 +294,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
 
         await using var scope = NewScope();
         Func<Task> act = async () => await Lifecycle(scope).SubmitForReviewAsync(
-            revisionId, [Guid.NewGuid()], effectiveFromUtc: null, Ct);
+            revisionId, [Guid.NewGuid()], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
 
         var ex = (await act.Should().ThrowAsync<UnauthorizedOperationException>()).Subject.Single();
         ex.PermissionName.Should().Be(PermissionNames.DocumentAssignReviewers);
@@ -298,12 +311,12 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revisionId, [reviewer], effectiveFromUtc: null, Ct);
+                revisionId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         }
 
         await using var scope2 = NewScope();
         Func<Task> act = async () => await Lifecycle(scope2).SubmitForReviewAsync(
-            revisionId, [Guid.NewGuid()], effectiveFromUtc: null, Ct);
+            revisionId, [Guid.NewGuid()], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
     }
@@ -322,7 +335,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
 
         await using var scope = NewScope();
         Func<Task> act = async () => await Lifecycle(scope).SubmitForReviewAsync(
-            revisionId, [Guid.NewGuid()], effectiveFromUtc: null, Ct);
+            revisionId, [Guid.NewGuid()], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
 
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*ICurrentUserAccessor.UserId is null*");
@@ -342,7 +355,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revisionId, [reviewerA, reviewerB], effectiveFromUtc: null, Ct);
+                revisionId, [reviewerA, reviewerB], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         }
 
         var corr = Guid.NewGuid();
@@ -385,14 +398,14 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revisionId, [reviewerA, reviewerB], effectiveFromUtc: null, Ct);
+                revisionId, [reviewerA, reviewerB], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         }
 
         // Reviewer A signs.
         BecomeReviewer(reviewerA);
         await using (var scope = NewScope())
         {
-            await Lifecycle(scope).SignAsReviewerAsync(revisionId, Ct);
+            await Lifecycle(scope).SignAsReviewerAsync(revisionId, ReviewerRole, Ct);
         }
 
         // Author returns to draft. We need the Author permission set.
@@ -448,7 +461,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revisionId, [reviewer], effectiveFromUtc: null, Ct);
+                revisionId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         }
 
         // Strip the ReturnForEdits permission.
@@ -477,7 +490,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revisionId, [reviewerA, reviewerB], effectiveFromUtc: null, Ct);
+                revisionId, [reviewerA, reviewerB], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         }
 
         BecomeReviewer(reviewerA);
@@ -487,7 +500,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         DocumentReviewAssignment signed;
         await using (var scope = NewScope())
         {
-            signed = await Lifecycle(scope).SignAsReviewerAsync(revisionId, Ct);
+            signed = await Lifecycle(scope).SignAsReviewerAsync(revisionId, ReviewerRole, Ct);
         }
 
         signed.Status.Should().Be(DocumentReviewAssignmentStatus.Signed);
@@ -523,7 +536,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revisionId, [reviewer], effectiveFromUtc: null, Ct);
+                revisionId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         }
 
         BecomeReviewer(reviewer);
@@ -532,7 +545,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
 
         await using (var scope = NewScope())
         {
-            await Lifecycle(scope).SignAsReviewerAsync(revisionId, Ct);
+            await Lifecycle(scope).SignAsReviewerAsync(revisionId, ReviewerRole, Ct);
         }
 
         await using (var ctx = NewContext())
@@ -571,12 +584,12 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revAId, [reviewer], effectiveFromUtc: null, Ct);
+                revAId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         }
         BecomeReviewer(reviewer);
         await using (var scope = NewScope())
         {
-            await Lifecycle(scope).SignAsReviewerAsync(revAId, Ct);
+            await Lifecycle(scope).SignAsReviewerAsync(revAId, ReviewerRole, Ct);
         }
 
         // Now create Rev B as a sibling Draft revision on the same
@@ -599,7 +612,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revBId, [reviewer], effectiveFromUtc: null, Ct);
+                revBId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         }
         BecomeReviewer(reviewer);
 
@@ -607,7 +620,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         Correlation.CurrentCorrelationId = corr;
         await using (var scope = NewScope())
         {
-            await Lifecycle(scope).SignAsReviewerAsync(revBId, Ct);
+            await Lifecycle(scope).SignAsReviewerAsync(revBId, ReviewerRole, Ct);
         }
 
         await using (var ctx = NewContext())
@@ -644,12 +657,12 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revisionId, [assignedReviewer], effectiveFromUtc: null, Ct);
+                revisionId, [assignedReviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         }
 
         BecomeReviewer(unrelatedUser);
         await using var scope2 = NewScope();
-        Func<Task> act = async () => await Lifecycle(scope2).SignAsReviewerAsync(revisionId, Ct);
+        Func<Task> act = async () => await Lifecycle(scope2).SignAsReviewerAsync(revisionId, ReviewerRole, Ct);
 
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*not in the assigned reviewer list*");
@@ -667,18 +680,18 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revisionId, [reviewerA, reviewerB], effectiveFromUtc: null, Ct);
+                revisionId, [reviewerA, reviewerB], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         }
 
         BecomeReviewer(reviewerA);
         await using (var scope = NewScope())
         {
-            await Lifecycle(scope).SignAsReviewerAsync(revisionId, Ct);
+            await Lifecycle(scope).SignAsReviewerAsync(revisionId, ReviewerRole, Ct);
         }
 
         // Same reviewer signs again — already signed → throws.
         await using var scope2 = NewScope();
-        Func<Task> act = async () => await Lifecycle(scope2).SignAsReviewerAsync(revisionId, Ct);
+        Func<Task> act = async () => await Lifecycle(scope2).SignAsReviewerAsync(revisionId, ReviewerRole, Ct);
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*already signed*");
     }
@@ -692,7 +705,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         BecomeReviewer(reviewer);
 
         await using var scope = NewScope();
-        Func<Task> act = async () => await Lifecycle(scope).SignAsReviewerAsync(revisionId, Ct);
+        Func<Task> act = async () => await Lifecycle(scope).SignAsReviewerAsync(revisionId, ReviewerRole, Ct);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
     }
@@ -708,14 +721,14 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revisionId, [reviewer], effectiveFromUtc: null, Ct);
+                revisionId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         }
 
         BecomeReviewer(reviewer);
         CurrentUser.Permissions = [];
 
         await using var scope2 = NewScope();
-        Func<Task> act = async () => await Lifecycle(scope2).SignAsReviewerAsync(revisionId, Ct);
+        Func<Task> act = async () => await Lifecycle(scope2).SignAsReviewerAsync(revisionId, ReviewerRole, Ct);
 
         var ex = (await act.Should().ThrowAsync<UnauthorizedOperationException>()).Subject.Single();
         ex.PermissionName.Should().Be(PermissionNames.DocumentReview);
@@ -735,12 +748,12 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revisionId, [reviewer], effectiveFromUtc: null, Ct);
+                revisionId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         }
         BecomeReviewer(reviewer);
         await using (var scope = NewScope())
         {
-            await Lifecycle(scope).SignAsReviewerAsync(revisionId, Ct);
+            await Lifecycle(scope).SignAsReviewerAsync(revisionId, ReviewerRole, Ct);
         }
 
         // Retire as the author (who has Document.Retire permission).
@@ -751,7 +764,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
 
         await using (var scope = NewScope())
         {
-            await Lifecycle(scope).RetireAsync(documentId, Ct);
+            await Lifecycle(scope).RetireAsync(documentId, AuthorRole, Ct);
         }
 
         await using (var ctx = NewContext())
@@ -782,22 +795,22 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revisionId, [reviewer], effectiveFromUtc: null, Ct);
+                revisionId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         }
         BecomeReviewer(reviewer);
         await using (var scope = NewScope())
         {
-            await Lifecycle(scope).SignAsReviewerAsync(revisionId, Ct);
+            await Lifecycle(scope).SignAsReviewerAsync(revisionId, ReviewerRole, Ct);
         }
         BecomeAuthor(authorId);
         await using (var scope = NewScope())
         {
-            await Lifecycle(scope).RetireAsync(documentId, Ct);
+            await Lifecycle(scope).RetireAsync(documentId, AuthorRole, Ct);
         }
 
         // Second retire on the same doc → entity guard throws.
         await using var scope2 = NewScope();
-        Func<Task> act = async () => await Lifecycle(scope2).RetireAsync(documentId, Ct);
+        Func<Task> act = async () => await Lifecycle(scope2).RetireAsync(documentId, AuthorRole, Ct);
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*already been retired*");
     }
@@ -811,7 +824,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         BecomeAuthor(authorId);
 
         await using var scope = NewScope();
-        Func<Task> act = async () => await Lifecycle(scope).RetireAsync(documentId, Ct);
+        Func<Task> act = async () => await Lifecycle(scope).RetireAsync(documentId, AuthorRole, Ct);
 
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*no currently-Active revision*");
@@ -828,12 +841,12 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             await Lifecycle(scope).SubmitForReviewAsync(
-                revisionId, [reviewer], effectiveFromUtc: null, Ct);
+                revisionId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         }
         BecomeReviewer(reviewer);
         await using (var scope = NewScope())
         {
-            await Lifecycle(scope).SignAsReviewerAsync(revisionId, Ct);
+            await Lifecycle(scope).SignAsReviewerAsync(revisionId, ReviewerRole, Ct);
         }
 
         // Author with Retire permission stripped.
@@ -843,7 +856,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
             .ToList();
 
         await using var scope2 = NewScope();
-        Func<Task> act = async () => await Lifecycle(scope2).RetireAsync(documentId, Ct);
+        Func<Task> act = async () => await Lifecycle(scope2).RetireAsync(documentId, AuthorRole, Ct);
         var ex = (await act.Should().ThrowAsync<UnauthorizedOperationException>()).Subject.Single();
         ex.PermissionName.Should().Be(PermissionNames.DocumentRetire);
     }
@@ -853,7 +866,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
     {
         BecomeAuthor(Guid.NewGuid());
         await using var scope = NewScope();
-        Func<Task> act = async () => await Lifecycle(scope).RetireAsync(Guid.NewGuid(), Ct);
+        Func<Task> act = async () => await Lifecycle(scope).RetireAsync(Guid.NewGuid(), AuthorRole, Ct);
         await act.Should().ThrowAsync<KeyNotFoundException>();
     }
 
@@ -868,7 +881,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
 
         await using var scope = NewScope();
         Func<Task> act = async () => await Lifecycle(scope).SubmitForReviewAsync(
-            revisionId, null!, effectiveFromUtc: null, Ct);
+            revisionId, null!, effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
 
         await act.Should().ThrowAsync<ArgumentNullException>();
     }
@@ -879,7 +892,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         BecomeAuthor(Guid.NewGuid());
         await using var scope = NewScope();
         Func<Task> act = async () => await Lifecycle(scope).SubmitForReviewAsync(
-            Guid.NewGuid(), [Guid.NewGuid()], effectiveFromUtc: null, Ct);
+            Guid.NewGuid(), [Guid.NewGuid()], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         await act.Should().ThrowAsync<KeyNotFoundException>();
     }
 }

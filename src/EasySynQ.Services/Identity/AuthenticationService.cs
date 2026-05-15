@@ -148,15 +148,23 @@ public sealed class AuthenticationService : IAuthenticationService
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
         // ADR 0007 — capture the session-long role + permission
-        // snapshot at the sign-in instant. Both lookups use the same
-        // `now` value so a role assignment that expires precisely at
-        // `now` is treated consistently in both queries. The session
+        // snapshot at the sign-in instant. All three lookups use the
+        // same `now` value so a role assignment that expires precisely
+        // at `now` is treated consistently across queries. The session
         // is fixed for its duration: a mid-session role or permission
         // change takes effect at the next sign-in (ADR 0007 §Snapshot).
+        //
+        // ADR 0009 — third lookup builds the per-role permission map
+        // the signature dialog uses to filter the role picker. Source
+        // is the same UserRole → RolePermission → Permission join, so
+        // the result is consistent with the flat Permissions list above
+        // (modulo direct UserPermission grants, which are folded into
+        // Permissions but not represented in RolePermissions).
         var roles = await _userRoles.GetEffectiveRoleNamesAsync(user.Id, now, cancellationToken);
         var permissions = await _permissions.GetEffectivePermissionNamesForUserAsync(user.Id, now, cancellationToken);
+        var rolePermissions = await _permissions.GetEffectiveRolePermissionMapForUserAsync(user.Id, now, cancellationToken);
 
-        return new AuthenticationResult.Success(user, user.MustChangePassword, roles, permissions);
+        return new AuthenticationResult.Success(user, user.MustChangePassword, roles, permissions, rolePermissions);
     }
 
     /// <inheritdoc />

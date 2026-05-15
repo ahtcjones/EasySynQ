@@ -41,6 +41,7 @@ public sealed class SignatureService : ISignatureService
         string signedEntityType,
         string signedEntityId,
         string canonicalPayload,
+        string signingAsRole,
         CancellationToken cancellationToken)
     {
         // Single-action wrapper: stage + save. Multi-entity callers
@@ -48,7 +49,7 @@ public sealed class SignatureService : ISignatureService
         // StageSignatureAsync directly so the signature row commits in
         // the same SaveChanges as the surrounding state changes.
         var signature = await StageSignatureAsync(
-            signedEntityType, signedEntityId, canonicalPayload, cancellationToken);
+            signedEntityType, signedEntityId, canonicalPayload, signingAsRole, cancellationToken);
         await _unitOfWork.SaveChangesAsync(cancellationToken);
         return signature;
     }
@@ -58,11 +59,13 @@ public sealed class SignatureService : ISignatureService
         string signedEntityType,
         string signedEntityId,
         string canonicalPayload,
+        string signingAsRole,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(signedEntityType);
         ArgumentException.ThrowIfNullOrWhiteSpace(signedEntityId);
         ArgumentException.ThrowIfNullOrWhiteSpace(canonicalPayload);
+        ArgumentException.ThrowIfNullOrWhiteSpace(signingAsRole);
 
         if (_currentUser.UserId is null)
         {
@@ -71,36 +74,28 @@ public sealed class SignatureService : ISignatureService
                 "Authenticate before calling SignAsync.");
         }
 
-        // Snapshot the role NOW. The Signature carries this string for
-        // the lifetime of the row; later changes to the user's
-        // assignments do not retroactively change what they signed as.
-        //
-        // ADR 0007 made Roles a collection on ICurrentUserAccessor.
-        // Phase 1 SignatureService requires exactly one role on the
-        // current user — the bootstrap Administrator has one role and
-        // is the only user produced by Phase 1. Multi-role users
-        // (Plant Manager + Internal Auditor, etc.) require a
-        // "sign-as-which-role" UX that has not yet been designed; the
-        // open Phase 1 Follow-Up will land that ADR when C4
-        // (signature dialog scaffolding) ships. Throwing here instead
-        // of papering over with .First() surfaces the gap loudly at
-        // the first multi-role signing attempt.
-        if (_currentUser.Roles.Count != 1)
+        // ADR 0009 — role is supplied by the caller (the UI signing-
+        // flow prompter resolved it for multi-role users; single-role
+        // users passed their only role literally). Validate that the
+        // user actually holds the role they claim to be signing as —
+        // a defensive check against UI programming errors that would
+        // produce an audit row with a fraudulent RoleAtTimeOfSign.
+        if (!_currentUser.Roles.Contains(signingAsRole))
         {
             throw new InvalidOperationException(
-                $"Cannot sign: current user holds {_currentUser.Roles.Count} role(s), " +
-                "but Phase 1 SignatureService requires exactly one role to capture as " +
-                "RoleAtTimeOfSign. The 'sign as which role' UX for multi-role users is a " +
-                "Phase 2 design concern tracked as a Phase 1 Follow-Up.");
+                $"Cannot sign: current user does not hold role '{signingAsRole}'. " +
+                "The role passed to SignAsync must be a member of " +
+                "ICurrentUserAccessor.Roles. This catches UI programming " +
+                "errors where the prompter or call site passes a role the " +
+                "user is not authorized to sign as.");
         }
-        var roleSnapshot = _currentUser.Roles.First();
 
         var payloadHash = ComputePayloadHash(canonicalPayload);
 
         var signature = new Signature(
             id: Guid.NewGuid(),
             utcTimestamp: _clock.UtcNow,
-            roleAtTimeOfSign: roleSnapshot,
+            roleAtTimeOfSign: signingAsRole,
             signedEntityType: signedEntityType,
             signedEntityId: signedEntityId,
             payloadHash: payloadHash);

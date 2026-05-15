@@ -51,12 +51,19 @@ public class LoginViewModelTests
         var user = NewUser();
         IReadOnlyCollection<string> expectedRoles = ["Quality Manager", "Internal Auditor"];
         IReadOnlyCollection<string> expectedPermissions = ["Document.Approve", "AuditLog.Read"];
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>> expectedRolePermissions =
+            new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal)
+            {
+                ["Quality Manager"] = ["Document.Approve"],
+                ["Internal Auditor"] = ["AuditLog.Read"],
+            };
         _auth.Setup(a => a.AuthenticateAsync("alice", "pw", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AuthenticationResult.Success(
                 user,
                 RequiresPasswordChange: false,
                 Roles: expectedRoles,
-                Permissions: expectedPermissions));
+                Permissions: expectedPermissions,
+                RolePermissions: expectedRolePermissions));
 
         AuthenticatedUserEventArgs? raised = null;
         var raisedCount = 0;
@@ -69,11 +76,13 @@ public class LoginViewModelTests
         raised.Should().NotBeNull();
         raised!.User.Should().BeSameAs(user);
         raised.RequiresPasswordChange.Should().BeFalse();
-        // ADR 0007: the role and permission snapshots flow through
-        // verbatim from AuthenticationResult.Success to the event args
-        // so the App handler can populate the writable accessor.
+        // ADR 0007 / 0009: the role, permission, and role-permission
+        // snapshots flow through verbatim from
+        // AuthenticationResult.Success to the event args so the App
+        // handler can populate the writable accessor.
         raised.Roles.Should().BeSameAs(expectedRoles);
         raised.Permissions.Should().BeSameAs(expectedPermissions);
+        raised.RolePermissions.Should().BeSameAs(expectedRolePermissions);
         sut.ErrorMessage.Should().BeNull();
         sut.HasError.Should().BeFalse();
         sut.LogCorrelationId.Should().BeNull();

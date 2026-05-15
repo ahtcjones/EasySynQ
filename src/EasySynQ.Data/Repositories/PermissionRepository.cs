@@ -93,4 +93,63 @@ public class PermissionRepository : Repository<Permission, Guid>, IPermissionRep
             .Where(p => names.Contains(p.Name))
             .ToListAsync(cancellationToken);
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyDictionary<string, IReadOnlyCollection<string>>>
+        GetEffectiveRolePermissionMapForUserAsync(
+            Guid userId,
+            DateTime asOfUtc,
+            CancellationToken cancellationToken)
+    {
+        if (asOfUtc.Kind != DateTimeKind.Utc)
+        {
+            throw new ArgumentException(
+                "asOfUtc must have DateTimeKind.Utc.",
+                nameof(asOfUtc));
+        }
+
+        // Same shape as GetEffectivePermissionNamesForUserAsync's
+        // role-path branch, but projects to the (RoleName, PermissionName)
+        // pair so we can group by role on the client. IgnoreQueryFilters
+        // lifts the global as-of filter (ADR 0005) so the explicit
+        // EffectivePeriod predicates can use the caller's asOfUtc; soft-
+        // delete predicates re-applied per the same rationale.
+        //
+        // Direct UserPermission grants are deliberately NOT included —
+        // ADR 0009's signature dialog covers role-derived permissions
+        // only, with the corner case (direct-grant-only path to a
+        // gating permission) documented in ICurrentUserAccessor's
+        // RolePermissions remarks.
+
+        var roleAndPermissionPairs =
+            from ur in Context.UserRoles.IgnoreQueryFilters()
+            where !ur.IsDeleted
+               && ur.UserId == userId
+               && ur.EffectivePeriod.EffectiveFromUtc <= asOfUtc
+               && (ur.EffectivePeriod.EffectiveToUtc == null
+                   || asOfUtc < ur.EffectivePeriod.EffectiveToUtc)
+            join role in Context.Roles.IgnoreQueryFilters()
+                on ur.RoleId equals role.Id
+            where !role.IsDeleted
+            join rp in Context.RolePermissions.IgnoreQueryFilters()
+                on role.Id equals rp.RoleId
+            where !rp.IsDeleted
+               && rp.EffectivePeriod.EffectiveFromUtc <= asOfUtc
+               && (rp.EffectivePeriod.EffectiveToUtc == null
+                   || asOfUtc < rp.EffectivePeriod.EffectiveToUtc)
+            join p in Context.Permissions.IgnoreQueryFilters()
+                on rp.PermissionId equals p.Id
+            where !p.IsDeleted
+            select new { RoleName = role.Name, PermissionName = p.Name };
+
+        var pairs = await roleAndPermissionPairs.ToListAsync(cancellationToken);
+
+        // Group client-side. Result is { roleName -> distinct permission names }.
+        return pairs
+            .GroupBy(x => x.RoleName, StringComparer.Ordinal)
+            .ToDictionary(
+                g => g.Key,
+                g => (IReadOnlyCollection<string>)g.Select(x => x.PermissionName).Distinct(StringComparer.Ordinal).ToList(),
+                StringComparer.Ordinal);
+    }
 }

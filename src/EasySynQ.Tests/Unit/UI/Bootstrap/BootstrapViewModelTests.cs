@@ -46,9 +46,14 @@ public class BootstrapViewModelTests
         IReadOnlyCollection<string> roles = ["Administrator"];
         IReadOnlyCollection<string> permissions =
             ["System.Administer", "Role.Create", "User.Create", "AuditLog.Read"];
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>> rolePermissions =
+            new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal)
+            {
+                ["Administrator"] = permissions,
+            };
         _service.Setup(s => s.CreateAdministratorAsync(
                 "admin", "valid-password", "Administrator", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new BootstrapResult(user, roles, permissions));
+            .ReturnsAsync(new BootstrapResult(user, roles, permissions, rolePermissions));
 
         BootstrapSucceededEventArgs? raised = null;
         var raisedCount = 0;
@@ -64,11 +69,13 @@ public class BootstrapViewModelTests
         raisedCount.Should().Be(1);
         raised.Should().NotBeNull();
         raised!.Administrator.Should().BeSameAs(user);
-        // ADR 0007: roles + permissions flow through verbatim from
-        // BootstrapResult to the event args so the App handler can
-        // populate the writable accessor without re-resolving.
+        // ADR 0007 / 0009: roles, permissions, and per-role breakdown
+        // flow through verbatim from BootstrapResult to the event args
+        // so the App handler can populate the writable accessor without
+        // re-resolving.
         raised.Roles.Should().BeSameAs(roles);
         raised.Permissions.Should().BeSameAs(permissions);
+        raised.RolePermissions.Should().BeSameAs(rolePermissions);
         idempotencyRaised.Should().BeFalse();
         sut.ErrorMessage.Should().BeNull();
         sut.HasError.Should().BeFalse();

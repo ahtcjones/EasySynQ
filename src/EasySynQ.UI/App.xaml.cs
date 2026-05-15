@@ -18,6 +18,7 @@ using EasySynQ.UI.Identity;
 using EasySynQ.UI.Login;
 using EasySynQ.UI.Navigation;
 using EasySynQ.UI.Pulse;
+using EasySynQ.UI.Signing;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -289,6 +290,13 @@ public partial class App : Application
         services.AddSingleton<PulseDrawerViewModel>();
         services.AddSingleton<MainShellViewModel>();
         services.AddSingleton<MainWindow>();
+
+        // ADR 0009 C4 — signature role prompter scaffolding. The
+        // dialog itself is constructed per call by the prompter (a
+        // Window can only ShowDialog once), so only the prompter is
+        // DI-registered. Singleton because the prompter is stateless
+        // and composes with the singleton role-resolution service.
+        services.AddSingleton<ISignatureRolePrompter, SignatureRolePrompter>();
     }
 
     /// <summary>
@@ -705,7 +713,8 @@ public partial class App : Application
             args.User.Username,
             args.User.DisplayName,
             args.Roles,
-            args.Permissions);
+            args.Permissions,
+            args.RolePermissions);
         LogSignInSucceeded(logger, args.User.Username, args.Roles, args.Permissions);
 
         var mainWindow = host.Services.GetRequiredService<MainWindow>();
@@ -824,7 +833,8 @@ public partial class App : Application
             args.Administrator.Username,
             args.Administrator.DisplayName,
             args.Roles,
-            args.Permissions);
+            args.Permissions,
+            args.RolePermissions);
         LogBootstrapSucceeded(logger, args.Administrator.Username, args.Roles, args.Permissions);
 
         var mainWindow = host.Services.GetRequiredService<MainWindow>();

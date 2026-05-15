@@ -73,9 +73,11 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
         Guid revisionId,
         IReadOnlyCollection<Guid> reviewerUserIds,
         DateTime? effectiveFromUtc,
+        string signingAsRole,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(reviewerUserIds);
+        ArgumentException.ThrowIfNullOrWhiteSpace(signingAsRole);
 
         var actorId = RequireAuthenticatedUser();
         RequirePermission(PermissionNames.DocumentSubmitForReview);
@@ -116,11 +118,14 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
         // Stage the author's submission signature first so its Id is
         // available to stamp on the revision via Submit(). Payload
         // format per plan §G Q6 (option a — minimal action+timestamp).
+        // Role per ADR 0009 — caller supplies it (UI prompter for
+        // multi-role users, literal for single-role).
         var lockedAtUtc = _clock.UtcNow;
         var authorSig = await _signatures.StageSignatureAsync(
             signedEntityType: SignedEntityTypeDocumentRevision,
             signedEntityId: revisionId.ToString(),
             canonicalPayload: BuildSubmitPayload(revisionId, lockedAtUtc),
+            signingAsRole: signingAsRole,
             cancellationToken: cancellationToken);
 
         // Stage one assignment per reviewer. Author may sign as a
@@ -181,8 +186,11 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
     /// <inheritdoc />
     public async Task<DocumentReviewAssignment> SignAsReviewerAsync(
         Guid revisionId,
+        string signingAsRole,
         CancellationToken cancellationToken)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(signingAsRole);
+
         var actorId = RequireAuthenticatedUser();
         RequirePermission(PermissionNames.DocumentReview);
 
@@ -218,6 +226,7 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
             signedEntityType: SignedEntityTypeDocumentRevision,
             signedEntityId: revisionId.ToString(),
             canonicalPayload: BuildReviewPayload(revisionId, actorId, signedAtUtc),
+            signingAsRole: signingAsRole,
             cancellationToken: cancellationToken);
 
         assignment.RecordSignature(sig.Id, signedAtUtc);
@@ -266,8 +275,10 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
     }
 
     /// <inheritdoc />
-    public async Task RetireAsync(Guid documentId, CancellationToken cancellationToken)
+    public async Task RetireAsync(Guid documentId, string signingAsRole, CancellationToken cancellationToken)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(signingAsRole);
+
         var actorId = RequireAuthenticatedUser();
         RequirePermission(PermissionNames.DocumentRetire);
 
@@ -296,6 +307,7 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
             signedEntityType: SignedEntityTypeDocument,
             signedEntityId: documentId.ToString(),
             canonicalPayload: BuildRetirePayload(documentId, retiredAtUtc),
+            signingAsRole: signingAsRole,
             cancellationToken: cancellationToken);
 
         document.Retire(retiredAtUtc, actorId, sig.Id);

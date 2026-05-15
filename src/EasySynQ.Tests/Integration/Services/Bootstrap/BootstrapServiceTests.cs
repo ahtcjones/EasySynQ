@@ -66,6 +66,12 @@ public class BootstrapServiceTests : ServiceIntegrationTestBase
         result.Roles.Should().BeEquivalentTo("Administrator");
         result.Permissions.Should().BeEquivalentTo(PermissionNames.All);
 
+        // ADR 0009: per-role breakdown is also deterministic — the
+        // Administrator role holds every system permission.
+        result.RolePermissions.Should().ContainKey("Administrator");
+        result.RolePermissions["Administrator"].Should().BeEquivalentTo(PermissionNames.All);
+        result.RolePermissions.Should().HaveCount(1);
+
         await using (var ctx = NewContext())
         {
             var users = await ctx.Users.ToListAsync(Ct);
@@ -117,6 +123,10 @@ public class BootstrapServiceTests : ServiceIntegrationTestBase
             // bootstrap-time construction.
             success.Roles.Should().BeEquivalentTo("Administrator");
             success.Permissions.Should().BeEquivalentTo(PermissionNames.All);
+            // ADR 0009: per-role breakdown also matches.
+            success.RolePermissions.Should().ContainKey("Administrator");
+            success.RolePermissions["Administrator"]
+                .Should().BeEquivalentTo(PermissionNames.All);
         }
     }
 
@@ -148,9 +158,21 @@ public class BootstrapServiceTests : ServiceIntegrationTestBase
                 result.Administrator.Id, Clock.UtcNow, Ct);
             var resolvedPermissions = await permissions.GetEffectivePermissionNamesForUserAsync(
                 result.Administrator.Id, Clock.UtcNow, Ct);
+            // ADR 0009 — invariant pin extends to RolePermissions:
+            // bootstrap returns a deterministic map; the repository
+            // resolution against the same data must produce equivalent
+            // shape.
+            var resolvedRolePermissions = await permissions.GetEffectiveRolePermissionMapForUserAsync(
+                result.Administrator.Id, Clock.UtcNow, Ct);
 
             resolvedRoles.Should().BeEquivalentTo(result.Roles);
             resolvedPermissions.Should().BeEquivalentTo(result.Permissions);
+            resolvedRolePermissions.Keys.Should().BeEquivalentTo(result.RolePermissions.Keys);
+            foreach (var role in result.RolePermissions.Keys)
+            {
+                resolvedRolePermissions[role]
+                    .Should().BeEquivalentTo(result.RolePermissions[role]);
+            }
         }
     }
 

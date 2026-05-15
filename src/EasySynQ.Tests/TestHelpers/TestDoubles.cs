@@ -46,6 +46,10 @@ public sealed class MutableCurrentUserAccessor : ICurrentUserAccessor
 
     /// <inheritdoc cref="ICurrentUserAccessor.Permissions"/>
     public IReadOnlyCollection<string> Permissions { get; set; } = [];
+
+    /// <inheritdoc cref="ICurrentUserAccessor.RolePermissions"/>
+    public IReadOnlyDictionary<string, IReadOnlyCollection<string>> RolePermissions { get; set; }
+        = new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal);
 }
 
 /// <summary>

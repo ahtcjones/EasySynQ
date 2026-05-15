@@ -31,7 +31,7 @@ public class SignatureServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             var sig = scope.ServiceProvider.GetRequiredService<ISignatureService>();
-            signature = await sig.SignAsync("DocumentRevision", "DR-2026-001", payload, Ct);
+            signature = await sig.SignAsync("DocumentRevision", "DR-2026-001", payload, "QualityManager", Ct);
         }
 
         signature.UtcTimestamp.Should().Be(Clock.UtcNow);
@@ -55,7 +55,7 @@ public class SignatureServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             var sig = scope.ServiceProvider.GetRequiredService<ISignatureService>();
-            signature = await sig.SignAsync("Reading", "R-001", "value=36.4HRC", Ct);
+            signature = await sig.SignAsync("Reading", "R-001", "value=36.4HRC", "LabTech", Ct);
         }
 
         await using (var scope = NewScope())
@@ -75,42 +75,46 @@ public class SignatureServiceTests : ServiceIntegrationTestBase
         await using var scope = NewScope();
         var sig = scope.ServiceProvider.GetRequiredService<ISignatureService>();
 
-        var act = async () => await sig.SignAsync("X", "Y", "payload", Ct);
+        var act = async () => await sig.SignAsync("X", "Y", "payload", "QualityManager", Ct);
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*Cannot sign anonymously*");
     }
 
     [Fact]
-    public async Task Sign_WithZeroRoles_ThrowsInvalidOperationAsync()
+    public async Task Sign_WithRoleNotHeld_ThrowsInvalidOperationAsync()
     {
+        // ADR 0009 — replaces the prior Roles.Single() throw. The
+        // signing call site (UI prompter) must pass a role the user
+        // actually holds; passing one they don't is a programming
+        // error and surfaces with a clear message.
         CurrentUser.UserId = Guid.NewGuid();
-        CurrentUser.Roles = [];
+        CurrentUser.Roles = ["QualityManager"];
 
         await using var scope = NewScope();
         var sig = scope.ServiceProvider.GetRequiredService<ISignatureService>();
 
-        var act = async () => await sig.SignAsync("X", "Y", "payload", Ct);
+        var act = async () => await sig.SignAsync("X", "Y", "payload", "Administrator", Ct);
         await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*current user holds 0 role*");
+            .WithMessage("*does not hold role 'Administrator'*");
     }
 
     [Fact]
-    public async Task Sign_WithMultipleRoles_ThrowsInvalidOperationAsync()
+    public async Task Sign_MultiRoleUser_WithValidSigningRole_SucceedsAsync()
     {
-        // ADR 0007 admits multi-role users, but Phase 1 SignatureService
-        // has no "sign-as-which-role" UX yet (Phase 1 Follow-Up tracks
-        // the future ADR). Throwing here surfaces the gap loudly the
-        // first time a multi-role user attempts to sign, rather than
-        // silently picking an arbitrary role.
+        // ADR 0009 — multi-role users now sign successfully when they
+        // pass a role they actually hold. The role passed becomes the
+        // RoleAtTimeOfSign verbatim.
         CurrentUser.UserId = Guid.NewGuid();
-        CurrentUser.Roles = ["QualityManager", "InternalAuditor"];
+        CurrentUser.Roles = ["QualityManager", "Auditor"];
 
-        await using var scope = NewScope();
-        var sig = scope.ServiceProvider.GetRequiredService<ISignatureService>();
+        Signature signature;
+        await using (var scope = NewScope())
+        {
+            var sig = scope.ServiceProvider.GetRequiredService<ISignatureService>();
+            signature = await sig.SignAsync("DocumentRevision", "DR-99", "p", "Auditor", Ct);
+        }
 
-        var act = async () => await sig.SignAsync("X", "Y", "payload", Ct);
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*current user holds 2 role*");
+        signature.RoleAtTimeOfSign.Should().Be("Auditor");
     }
 
     [Fact]
@@ -123,7 +127,7 @@ public class SignatureServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             var sig = scope.ServiceProvider.GetRequiredService<ISignatureService>();
-            signature = await sig.SignAsync("DocumentRevision", "DR-99", "payload-XYZ", Ct);
+            signature = await sig.SignAsync("DocumentRevision", "DR-99", "payload-XYZ", "QualityManager", Ct);
         }
 
         await using var ctx = NewContext();
@@ -150,7 +154,7 @@ public class SignatureServiceTests : ServiceIntegrationTestBase
         await using (var scope = NewScope())
         {
             var sig = scope.ServiceProvider.GetRequiredService<ISignatureService>();
-            signature = await sig.SignAsync("CoC", "J-2026-0847", "release-payload", Ct);
+            signature = await sig.SignAsync("CoC", "J-2026-0847", "release-payload", "QualityManager", Ct);
         }
 
         // Mutate the current user's roles AFTER signing — simulates the

@@ -56,6 +56,11 @@ public interface IDocumentLifecycleService
     /// the revision becomes Active once approved. May be in the future
     /// per SPEC §3.7. Pass <see langword="null"/> for "active
     /// immediately on approval."</param>
+    /// <param name="signingAsRole">Role the author is signing the
+    /// submission as (ADR 0009). Must be a member of the current
+    /// user's effective roles. The UI signing-flow prompter resolves
+    /// this for multi-role users; single-role users pass their only
+    /// role literally.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The persisted revision in its post-submit state.</returns>
     /// <exception cref="System.Collections.Generic.KeyNotFoundException">Thrown
@@ -67,12 +72,14 @@ public interface IDocumentLifecycleService
     /// reviewer set is empty, contains duplicates, or contains the
     /// author.</exception>
     /// <exception cref="System.InvalidOperationException">Thrown when no
-    /// authenticated user is available, or the revision is not in
-    /// Draft.</exception>
+    /// authenticated user is available, the revision is not in Draft,
+    /// or <paramref name="signingAsRole"/> is not a role the user
+    /// holds.</exception>
     Task<DocumentRevision> SubmitForReviewAsync(
         Guid revisionId,
         IReadOnlyCollection<Guid> reviewerUserIds,
         DateTime? effectiveFromUtc,
+        string signingAsRole,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -113,6 +120,9 @@ public interface IDocumentLifecycleService
     /// </summary>
     /// <param name="revisionId">Revision to sign on. Must be in
     /// <c>InReview</c>.</param>
+    /// <param name="signingAsRole">Role the reviewer is signing as
+    /// (ADR 0009). Must be a member of the current user's effective
+    /// roles.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The persisted assignment in its post-sign state.</returns>
     /// <exception cref="System.Collections.Generic.KeyNotFoundException">Thrown
@@ -122,9 +132,12 @@ public interface IDocumentLifecycleService
     /// <exception cref="System.InvalidOperationException">Thrown when no
     /// authenticated user is available, the revision is not in
     /// InReview, the current user has no Pending assignment on the
-    /// revision, or the current user has already signed.</exception>
+    /// revision, the current user has already signed, or
+    /// <paramref name="signingAsRole"/> is not a role the user
+    /// holds.</exception>
     Task<DocumentReviewAssignment> SignAsReviewerAsync(
         Guid revisionId,
+        string signingAsRole,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -138,6 +151,9 @@ public interface IDocumentLifecycleService
     /// <param name="documentId">Document to retire. Must not already be
     /// retired and must have a currently-Active revision per ADR 0008
     /// C3 plan §G Q7.</param>
+    /// <param name="signingAsRole">Role the user is signing the
+    /// retirement as (ADR 0009). Must be a member of the current
+    /// user's effective roles.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <exception cref="System.Collections.Generic.KeyNotFoundException">Thrown
     /// when no document with the supplied id exists.</exception>
@@ -145,6 +161,8 @@ public interface IDocumentLifecycleService
     /// when the current user lacks <c>Document.Retire</c>.</exception>
     /// <exception cref="System.InvalidOperationException">Thrown when no
     /// authenticated user is available, the document is already
-    /// retired, or the document has no currently-Active revision.</exception>
-    Task RetireAsync(Guid documentId, CancellationToken cancellationToken);
+    /// retired, the document has no currently-Active revision, or
+    /// <paramref name="signingAsRole"/> is not a role the user
+    /// holds.</exception>
+    Task RetireAsync(Guid documentId, string signingAsRole, CancellationToken cancellationToken);
 }

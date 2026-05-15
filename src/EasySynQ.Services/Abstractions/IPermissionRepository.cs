@@ -74,4 +74,52 @@ public interface IPermissionRepository : IRepository<Permission, Guid>
     Task<IReadOnlyList<Permission>> GetByNamesAsync(
         IReadOnlyCollection<string> names,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns the per-role breakdown of the supplied user's effective
+    /// role-derived permissions at <paramref name="asOfUtc"/> (ADR
+    /// 0009). Keys are the role names the user holds at
+    /// <paramref name="asOfUtc"/>; values are the in-effect permission
+    /// names that role grants the user. Roles the user holds but which
+    /// have no permissions at <paramref name="asOfUtc"/> appear in the
+    /// dictionary with an empty value collection.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Single EF Core query joining <c>UserRole</c> → <c>Role</c> →
+    /// <c>RolePermission</c> → <c>Permission</c>; both link tables
+    /// filtered by their own <c>EffectivePeriod</c> at
+    /// <paramref name="asOfUtc"/>. The result is grouped client-side
+    /// into the dictionary shape.
+    /// </para>
+    /// <para>
+    /// <b>Direct grants are not included.</b> Per-user permissions
+    /// granted via <c>UserPermission</c> (without going through a
+    /// role) are NOT in this map — they are folded into the flat
+    /// <see cref="GetEffectivePermissionNamesForUserAsync"/> result
+    /// but have no role to attach to. The signature dialog (ADR 0009)
+    /// reads this map for role filtering; the corner case where a
+    /// user's only path to a gating permission is a direct grant is
+    /// documented in <c>ICurrentUserAccessor</c>'s
+    /// <c>RolePermissions</c> remarks.
+    /// </para>
+    /// <para>
+    /// Returns an empty (but non-null) dictionary when the user holds
+    /// no in-effect roles.
+    /// </para>
+    /// </remarks>
+    /// <param name="userId">Identifier of the user whose role-permission
+    /// breakdown is being resolved.</param>
+    /// <param name="asOfUtc">UTC instant at which to evaluate the
+    /// effective-dated rows. Must be of <see cref="DateTimeKind.Utc"/>.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The per-role breakdown; possibly empty.</returns>
+    /// <exception cref="ArgumentException">Thrown when
+    /// <paramref name="asOfUtc"/> is not of
+    /// <see cref="DateTimeKind.Utc"/>.</exception>
+    Task<IReadOnlyDictionary<string, IReadOnlyCollection<string>>>
+        GetEffectiveRolePermissionMapForUserAsync(
+            Guid userId,
+            DateTime asOfUtc,
+            CancellationToken cancellationToken);
 }

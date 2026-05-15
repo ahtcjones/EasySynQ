@@ -32,6 +32,14 @@ public sealed class BootstrapSucceededEventArgs : EventArgs
     /// </summary>
     public IReadOnlyCollection<string> Permissions { get; }
 
+    /// <summary>
+    /// Per-role breakdown of role-derived permissions (ADR 0009). For
+    /// the happy bootstrap path this is always
+    /// <c>{ "Administrator" → PermissionNames.All }</c>. Non-null;
+    /// non-empty for the happy path.
+    /// </summary>
+    public IReadOnlyDictionary<string, IReadOnlyCollection<string>> RolePermissions { get; }
+
     /// <summary>Constructs the event payload.</summary>
     /// <param name="administrator">The Administrator user. Must not be
     /// <see langword="null"/>.</param>
@@ -39,20 +47,26 @@ public sealed class BootstrapSucceededEventArgs : EventArgs
     /// <see langword="null"/>; may be empty.</param>
     /// <param name="permissions">Permission-name snapshot. Must not be
     /// <see langword="null"/>; may be empty.</param>
+    /// <param name="rolePermissions">Per-role permission breakdown
+    /// (ADR 0009). Must not be <see langword="null"/>; may be empty.</param>
     /// <exception cref="ArgumentNullException">Thrown when
-    /// <paramref name="administrator"/>, <paramref name="roles"/>, or
-    /// <paramref name="permissions"/> is
+    /// <paramref name="administrator"/>, <paramref name="roles"/>,
+    /// <paramref name="permissions"/>, or
+    /// <paramref name="rolePermissions"/> is
     /// <see langword="null"/>.</exception>
     public BootstrapSucceededEventArgs(
         User administrator,
         IReadOnlyCollection<string> roles,
-        IReadOnlyCollection<string> permissions)
+        IReadOnlyCollection<string> permissions,
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>> rolePermissions)
     {
         ArgumentNullException.ThrowIfNull(administrator);
         ArgumentNullException.ThrowIfNull(roles);
         ArgumentNullException.ThrowIfNull(permissions);
+        ArgumentNullException.ThrowIfNull(rolePermissions);
         Administrator = administrator;
         Roles = roles;
         Permissions = permissions;
+        RolePermissions = rolePermissions;
     }
 }

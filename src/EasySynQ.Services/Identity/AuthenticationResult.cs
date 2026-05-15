@@ -36,13 +36,18 @@ public abstract record AuthenticationResult
     /// <see cref="Roles"/> and <see cref="Permissions"/> are the
     /// session-long snapshots resolved at sign-in (ADR 0007) — both
     /// are non-null but may be empty if the user holds no in-effect
-    /// roles or permissions.
+    /// roles or permissions. <see cref="RolePermissions"/> is the
+    /// per-role breakdown introduced by ADR 0009 for the signature
+    /// dialog; it covers role-derived permissions only (direct
+    /// per-user grants are folded into the flat <see cref="Permissions"/>
+    /// set but not represented per-role).
     /// </summary>
     public sealed record Success(
         User User,
         bool RequiresPasswordChange,
         IReadOnlyCollection<string> Roles,
-        IReadOnlyCollection<string> Permissions) : AuthenticationResult;
+        IReadOnlyCollection<string> Permissions,
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>> RolePermissions) : AuthenticationResult;
 
     /// <summary>
     /// Username unknown OR password wrong. The two cases are

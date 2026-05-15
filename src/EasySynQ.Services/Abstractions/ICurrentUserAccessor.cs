@@ -90,4 +90,37 @@ public interface ICurrentUserAccessor
     /// literals (ADR 0007 §Decision).
     /// </remarks>
     IReadOnlyCollection<string> Permissions { get; }
+
+    /// <summary>
+    /// Per-role breakdown of the user's effective role-derived
+    /// permissions, captured at sign-in (ADR 0009). Keys are role
+    /// names from <see cref="Roles"/>; values are the in-effect
+    /// permission names that role grants this user at the sign-in
+    /// instant. Used by the signature dialog to filter the user's
+    /// roles by the permission gating the action being signed, so
+    /// the audit row's <c>RoleAtTimeOfSign</c> reflects a role that
+    /// actually held the relevant permission. Empty (but never
+    /// <see langword="null"/>) when no user is authenticated.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Role-derived only.</b> This map covers permissions granted
+    /// via <c>UserRole</c> → <c>RolePermission</c> joins. Direct
+    /// per-user grants (<c>UserPermission</c> rows) are NOT
+    /// represented — they are folded into the flat
+    /// <see cref="Permissions"/> set but have no associated role to
+    /// surface in the picker. Phase 2 has no operational use of
+    /// direct grants; the signature dialog never encounters a user
+    /// whose only path to the gating permission is a direct grant.
+    /// If that case becomes real (admin UI for direct grants ships,
+    /// or a permission is granted only via <c>UserPermission</c>),
+    /// the dialog's defensive empty-list throw fires and the
+    /// behavior is revisited via a future ADR amendment.
+    /// </para>
+    /// <para>
+    /// <b>Empty-state contract.</b> Returns an empty (non-null)
+    /// dictionary when no user is authenticated.
+    /// </para>
+    /// </remarks>
+    IReadOnlyDictionary<string, IReadOnlyCollection<string>> RolePermissions { get; }
 }

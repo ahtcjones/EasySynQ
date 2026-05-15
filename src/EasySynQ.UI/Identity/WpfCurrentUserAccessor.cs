@@ -41,11 +41,16 @@ namespace EasySynQ.UI.Identity;
 /// </remarks>
 public sealed class WpfCurrentUserAccessor : IWritableCurrentUserAccessor
 {
+    private static readonly IReadOnlyDictionary<string, IReadOnlyCollection<string>>
+        EmptyRolePermissions =
+            new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal);
+
     private Guid? _userId;
     private string _username = string.Empty;
     private string _displayName = string.Empty;
     private IReadOnlyCollection<string> _roles = [];
     private IReadOnlyCollection<string> _permissions = [];
+    private IReadOnlyDictionary<string, IReadOnlyCollection<string>> _rolePermissions = EmptyRolePermissions;
 
     /// <inheritdoc />
     public Guid? UserId => _userId;
@@ -63,12 +68,16 @@ public sealed class WpfCurrentUserAccessor : IWritableCurrentUserAccessor
     public IReadOnlyCollection<string> Permissions => _permissions;
 
     /// <inheritdoc />
+    public IReadOnlyDictionary<string, IReadOnlyCollection<string>> RolePermissions => _rolePermissions;
+
+    /// <inheritdoc />
     public void SetCurrentUser(
         Guid userId,
         string username,
         string displayName,
         IReadOnlyCollection<string> roles,
-        IReadOnlyCollection<string> permissions)
+        IReadOnlyCollection<string> permissions,
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>> rolePermissions)
     {
         if (userId == Guid.Empty)
         {
@@ -78,12 +87,14 @@ public sealed class WpfCurrentUserAccessor : IWritableCurrentUserAccessor
         ArgumentException.ThrowIfNullOrWhiteSpace(displayName);
         ArgumentNullException.ThrowIfNull(roles);
         ArgumentNullException.ThrowIfNull(permissions);
+        ArgumentNullException.ThrowIfNull(rolePermissions);
 
         _userId = userId;
         _username = username;
         _displayName = displayName;
         _roles = roles;
         _permissions = permissions;
+        _rolePermissions = rolePermissions;
     }
 
     /// <inheritdoc />
@@ -94,5 +105,6 @@ public sealed class WpfCurrentUserAccessor : IWritableCurrentUserAccessor
         _displayName = string.Empty;
         _roles = [];
         _permissions = [];
+        _rolePermissions = EmptyRolePermissions;
     }
 }

@@ -204,10 +204,22 @@ public sealed partial class BootstrapService : IBootstrapService
         // test pins that invariant. Returning the canonical
         // PermissionNames.All avoids an avoidable EF read for a value
         // we deterministically know.
+        //
+        // ADR 0009 — RolePermissions is also deterministic for the
+        // bootstrap path: the Administrator role just got linked to
+        // every PermissionNames.All entry above, so the per-role map
+        // is { "Administrator" → PermissionNames.All }. Returning it
+        // explicitly avoids a follow-up DB read in the shell handler.
+        var rolePermissions = new Dictionary<string, IReadOnlyCollection<string>>(StringComparer.Ordinal)
+        {
+            [AdministratorRoleName] = PermissionNames.All,
+        };
+
         return new BootstrapResult(
             Administrator: user,
             Roles: [AdministratorRoleName],
-            Permissions: PermissionNames.All);
+            Permissions: PermissionNames.All,
+            RolePermissions: rolePermissions);
     }
 
     [LoggerMessage(

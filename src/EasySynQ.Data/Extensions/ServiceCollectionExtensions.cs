@@ -2,6 +2,7 @@ using EasySynQ.Data.Context;
 using EasySynQ.Data.Interceptors;
 using EasySynQ.Data.Repositories;
 using EasySynQ.Services.Abstractions;
+using EasySynQ.Services.Authorization;
 using EasySynQ.Services.Bootstrap;
 using EasySynQ.Services.Documents;
 using EasySynQ.Services.Events;
@@ -116,6 +117,13 @@ public static class ServiceCollectionExtensions
 
         // Document lifecycle service (ADR 0008 C3).
         services.AddScoped<IDocumentLifecycleService, DocumentLifecycleService>();
+
+        // Role-resolution service (ADR 0009 C4) — pure synchronous
+        // helper over ICurrentUserAccessor.RolePermissions; scoped
+        // because it composes with the scoped accessor in the test
+        // infrastructure (production accessor is singleton, scoped
+        // here is upper-bounded by accessor lifetime).
+        services.AddScoped<IRoleResolutionService, RoleResolutionService>();
 
         return services;
     }

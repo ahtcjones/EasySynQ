@@ -40,19 +40,24 @@ public interface IWritableCurrentUserAccessor : ICurrentUserAccessor
     /// <see langword="null"/>; may be empty.</param>
     /// <param name="permissions">Effective permission names captured at
     /// sign-in. Must not be <see langword="null"/>; may be empty.</param>
+    /// <param name="rolePermissions">Per-role breakdown of role-derived
+    /// permissions, used by the signature dialog (ADR 0009). Must not
+    /// be <see langword="null"/>; may be empty.</param>
     /// <exception cref="ArgumentException">Thrown when
     /// <paramref name="userId"/> is <see cref="Guid.Empty"/>, or when
     /// <paramref name="username"/> or <paramref name="displayName"/> is
     /// null/empty/whitespace.</exception>
     /// <exception cref="ArgumentNullException">Thrown when
-    /// <paramref name="roles"/> or <paramref name="permissions"/> is
+    /// <paramref name="roles"/>, <paramref name="permissions"/>, or
+    /// <paramref name="rolePermissions"/> is
     /// <see langword="null"/>.</exception>
     void SetCurrentUser(
         Guid userId,
         string username,
         string displayName,
         IReadOnlyCollection<string> roles,
-        IReadOnlyCollection<string> permissions);
+        IReadOnlyCollection<string> permissions,
+        IReadOnlyDictionary<string, IReadOnlyCollection<string>> rolePermissions);
 
     /// <summary>
     /// Resets the accessor to its unauthenticated state. Used by

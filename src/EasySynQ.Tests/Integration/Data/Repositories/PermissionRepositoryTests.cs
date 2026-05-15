@@ -235,4 +235,207 @@ public class PermissionRepositoryTests : IntegrationTestBase
             .Awaiting(() => repo.GetEffectivePermissionNamesForUserAsync(Guid.NewGuid(), localTime, Ct))
             .Should().ThrowAsync<ArgumentException>().WithMessage("*Utc*");
     }
+
+    // ─── GetEffectiveRolePermissionMapForUserAsync (ADR 0009 C4) ───
+
+    [Fact]
+    public async Task RolePermissionMap_OneRoleThreePerms_ReturnsMapWithOneKeyAndThreeValuesAsync()
+    {
+        var (userId, roleId) = (Guid.NewGuid(), Guid.NewGuid());
+        var permA = new Permission(Guid.NewGuid(), "Doc.A", "A", "Document");
+        var permB = new Permission(Guid.NewGuid(), "Doc.B", "B", "Document");
+        var permC = new Permission(Guid.NewGuid(), "Doc.C", "C", "Document");
+
+        await using (var ctx = NewContext())
+        {
+            ctx.Users.Add(new User(userId, "alice", "Alice", "h", "s", 1000, false));
+            ctx.Roles.Add(new Role(roleId, "QM", "Quality Manager."));
+            ctx.Permissions.AddRange(permA, permB, permC);
+            ctx.UserRoles.Add(new UserRole(Guid.NewGuid(), userId, roleId, OpenAt(AsOf.AddDays(-1))));
+            ctx.RolePermissions.AddRange(
+                new RolePermission(Guid.NewGuid(), roleId, permA.Id, OpenAt(AsOf.AddDays(-1))),
+                new RolePermission(Guid.NewGuid(), roleId, permB.Id, OpenAt(AsOf.AddDays(-1))),
+                new RolePermission(Guid.NewGuid(), roleId, permC.Id, OpenAt(AsOf.AddDays(-1))));
+            await ctx.SaveChangesAsync(Ct);
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new PermissionRepository(ctx);
+            var map = await repo.GetEffectiveRolePermissionMapForUserAsync(userId, AsOf, Ct);
+
+            map.Should().HaveCount(1);
+            map.Should().ContainKey("QM");
+            map["QM"].Should().BeEquivalentTo("Doc.A", "Doc.B", "Doc.C");
+        }
+    }
+
+    [Fact]
+    public async Task RolePermissionMap_TwoRolesDistinctPerms_ReturnsBothKeysAsync()
+    {
+        var userId = Guid.NewGuid();
+        var roleA = Guid.NewGuid();
+        var roleB = Guid.NewGuid();
+        var permA = new Permission(Guid.NewGuid(), "A.Read", "a", "X");
+        var permB = new Permission(Guid.NewGuid(), "B.Write", "b", "X");
+
+        await using (var ctx = NewContext())
+        {
+            ctx.Users.Add(new User(userId, "alice", "Alice", "h", "s", 1000, false));
+            ctx.Roles.AddRange(
+                new Role(roleA, "RoleA", "A"),
+                new Role(roleB, "RoleB", "B"));
+            ctx.Permissions.AddRange(permA, permB);
+            ctx.UserRoles.AddRange(
+                new UserRole(Guid.NewGuid(), userId, roleA, OpenAt(AsOf.AddDays(-1))),
+                new UserRole(Guid.NewGuid(), userId, roleB, OpenAt(AsOf.AddDays(-1))));
+            ctx.RolePermissions.AddRange(
+                new RolePermission(Guid.NewGuid(), roleA, permA.Id, OpenAt(AsOf.AddDays(-1))),
+                new RolePermission(Guid.NewGuid(), roleB, permB.Id, OpenAt(AsOf.AddDays(-1))));
+            await ctx.SaveChangesAsync(Ct);
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new PermissionRepository(ctx);
+            var map = await repo.GetEffectiveRolePermissionMapForUserAsync(userId, AsOf, Ct);
+
+            map.Keys.Should().BeEquivalentTo("RoleA", "RoleB");
+            map["RoleA"].Should().BeEquivalentTo("A.Read");
+            map["RoleB"].Should().BeEquivalentTo("B.Write");
+        }
+    }
+
+    [Fact]
+    public async Task RolePermissionMap_OverlappingPermissions_AppearsUnderEachRoleAsync()
+    {
+        // Both roles hold the same permission. Each role's value list
+        // contains it; client-side dedup is per-role, NOT cross-role
+        // (the dictionary keys preserve the per-role attribution).
+        var userId = Guid.NewGuid();
+        var roleA = Guid.NewGuid();
+        var roleB = Guid.NewGuid();
+        var sharedPerm = new Permission(Guid.NewGuid(), "Shared.P", "shared", "X");
+
+        await using (var ctx = NewContext())
+        {
+            ctx.Users.Add(new User(userId, "alice", "Alice", "h", "s", 1000, false));
+            ctx.Roles.AddRange(
+                new Role(roleA, "RoleA", "A"),
+                new Role(roleB, "RoleB", "B"));
+            ctx.Permissions.Add(sharedPerm);
+            ctx.UserRoles.AddRange(
+                new UserRole(Guid.NewGuid(), userId, roleA, OpenAt(AsOf.AddDays(-1))),
+                new UserRole(Guid.NewGuid(), userId, roleB, OpenAt(AsOf.AddDays(-1))));
+            ctx.RolePermissions.AddRange(
+                new RolePermission(Guid.NewGuid(), roleA, sharedPerm.Id, OpenAt(AsOf.AddDays(-1))),
+                new RolePermission(Guid.NewGuid(), roleB, sharedPerm.Id, OpenAt(AsOf.AddDays(-1))));
+            await ctx.SaveChangesAsync(Ct);
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new PermissionRepository(ctx);
+            var map = await repo.GetEffectiveRolePermissionMapForUserAsync(userId, AsOf, Ct);
+
+            map["RoleA"].Should().BeEquivalentTo("Shared.P");
+            map["RoleB"].Should().BeEquivalentTo("Shared.P");
+        }
+    }
+
+    [Fact]
+    public async Task RolePermissionMap_NoRoles_ReturnsEmptyDictAsync()
+    {
+        var userId = Guid.NewGuid();
+        await using (var ctx = NewContext())
+        {
+            ctx.Users.Add(new User(userId, "alice", "Alice", "h", "s", 1000, false));
+            await ctx.SaveChangesAsync(Ct);
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new PermissionRepository(ctx);
+            var map = await repo.GetEffectiveRolePermissionMapForUserAsync(userId, AsOf, Ct);
+
+            map.Should().NotBeNull();
+            map.Should().BeEmpty();
+        }
+    }
+
+    [Fact]
+    public async Task RolePermissionMap_ExpiredRolePermission_ExcludedAsync()
+    {
+        var (userId, roleId) = (Guid.NewGuid(), Guid.NewGuid());
+        var permLive = new Permission(Guid.NewGuid(), "Live.P", "live", "X");
+        var permExpired = new Permission(Guid.NewGuid(), "Expired.P", "expired", "X");
+
+        await using (var ctx = NewContext())
+        {
+            ctx.Users.Add(new User(userId, "alice", "Alice", "h", "s", 1000, false));
+            ctx.Roles.Add(new Role(roleId, "QM", "."));
+            ctx.Permissions.AddRange(permLive, permExpired);
+            ctx.UserRoles.Add(new UserRole(Guid.NewGuid(), userId, roleId, OpenAt(AsOf.AddDays(-1))));
+            ctx.RolePermissions.AddRange(
+                new RolePermission(Guid.NewGuid(), roleId, permLive.Id, OpenAt(AsOf.AddDays(-1))),
+                new RolePermission(Guid.NewGuid(), roleId, permExpired.Id,
+                    ClosedWindow(AsOf.AddDays(-30), AsOf.AddDays(-7))));
+            await ctx.SaveChangesAsync(Ct);
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new PermissionRepository(ctx);
+            var map = await repo.GetEffectiveRolePermissionMapForUserAsync(userId, AsOf, Ct);
+
+            map["QM"].Should().BeEquivalentTo("Live.P");
+        }
+    }
+
+    [Fact]
+    public async Task RolePermissionMap_DirectUserPermission_NotIncludedAsync()
+    {
+        // Per ADR 0009 — UserPermission rows are NOT in the result;
+        // only role-derived permissions are. The user has both a
+        // role-derived perm and a direct perm; only the role-derived
+        // one appears in the map.
+        var (userId, roleId) = (Guid.NewGuid(), Guid.NewGuid());
+        var rolePerm = new Permission(Guid.NewGuid(), "Role.P", "rp", "X");
+        var directPerm = new Permission(Guid.NewGuid(), "Direct.P", "dp", "X");
+
+        await using (var ctx = NewContext())
+        {
+            ctx.Users.Add(new User(userId, "alice", "Alice", "h", "s", 1000, false));
+            ctx.Roles.Add(new Role(roleId, "QM", "."));
+            ctx.Permissions.AddRange(rolePerm, directPerm);
+            ctx.UserRoles.Add(new UserRole(Guid.NewGuid(), userId, roleId, OpenAt(AsOf.AddDays(-1))));
+            ctx.RolePermissions.Add(
+                new RolePermission(Guid.NewGuid(), roleId, rolePerm.Id, OpenAt(AsOf.AddDays(-1))));
+            ctx.UserPermissions.Add(
+                new UserPermission(Guid.NewGuid(), userId, directPerm.Id, OpenAt(AsOf.AddDays(-1))));
+            await ctx.SaveChangesAsync(Ct);
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var repo = new PermissionRepository(ctx);
+            var map = await repo.GetEffectiveRolePermissionMapForUserAsync(userId, AsOf, Ct);
+
+            map.Should().HaveCount(1);
+            map["QM"].Should().BeEquivalentTo("Role.P");
+            map["QM"].Should().NotContain("Direct.P");
+        }
+    }
+
+    [Fact]
+    public async Task RolePermissionMap_NonUtcAsOfUtc_ThrowsArgumentExceptionAsync()
+    {
+        await using var ctx = NewContext();
+        var repo = new PermissionRepository(ctx);
+        var localTime = new DateTime(2026, 5, 13, 12, 0, 0, DateTimeKind.Local);
+
+        await FluentActions
+            .Awaiting(() => repo.GetEffectiveRolePermissionMapForUserAsync(Guid.NewGuid(), localTime, Ct))
+            .Should().ThrowAsync<ArgumentException>().WithMessage("*Utc*");
+    }
 }

@@ -35,6 +35,12 @@ public interface ISignatureService
     /// entity's identifier. Must not be null/empty/whitespace.</param>
     /// <param name="canonicalPayload">Stable canonical serialization of
     /// the payload to bind. Must not be null/empty/whitespace.</param>
+    /// <param name="signingAsRole">Role the user is signing as (ADR
+    /// 0009). Must be a member of the current user's
+    /// <see cref="EasySynQ.Services.Abstractions.ICurrentUserAccessor.Roles"/>.
+    /// For single-role users the caller passes their only role
+    /// literally; for multi-role users the role is resolved by the UI
+    /// signing-flow prompter before invoking this method.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The persisted <see cref="Signature"/>.</returns>
     /// <exception cref="ArgumentException">Thrown when any string input
@@ -43,11 +49,14 @@ public interface ISignatureService
     /// authenticated user is available
     /// (<see cref="EasySynQ.Services.Abstractions.ICurrentUserAccessor.UserId"/>
     /// is <see langword="null"/>) — anonymous signatures are
-    /// meaningless and disallowed.</exception>
+    /// meaningless and disallowed — or when
+    /// <paramref name="signingAsRole"/> is not a member of the
+    /// current user's effective roles.</exception>
     Task<Signature> SignAsync(
         string signedEntityType,
         string signedEntityId,
         string canonicalPayload,
+        string signingAsRole,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -73,6 +82,10 @@ public interface ISignatureService
     /// entity's identifier. Must not be null/empty/whitespace.</param>
     /// <param name="canonicalPayload">Stable canonical serialization of
     /// the payload to bind. Must not be null/empty/whitespace.</param>
+    /// <param name="signingAsRole">Role the user is signing as (ADR
+    /// 0009). Must be a member of the current user's effective roles.
+    /// See <see cref="SignAsync"/> for the full role-resolution
+    /// contract.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The staged (but not yet persisted)
     /// <see cref="Signature"/>. Its <c>Id</c> is fully populated; the
@@ -80,12 +93,14 @@ public interface ISignatureService
     /// <exception cref="ArgumentException">Thrown when any string input
     /// is null/empty/whitespace.</exception>
     /// <exception cref="InvalidOperationException">Thrown when no
-    /// authenticated user is available, or the current user holds a
-    /// number of roles other than exactly one.</exception>
+    /// authenticated user is available, or when
+    /// <paramref name="signingAsRole"/> is not a member of the
+    /// current user's effective roles.</exception>
     Task<Signature> StageSignatureAsync(
         string signedEntityType,
         string signedEntityId,
         string canonicalPayload,
+        string signingAsRole,
         CancellationToken cancellationToken);
 
     /// <summary>
