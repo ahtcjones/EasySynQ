@@ -8,6 +8,7 @@ using EasySynQ.Services.Bootstrap;
 using EasySynQ.Services.Identity;
 using EasySynQ.Services.Signatures;
 using EasySynQ.Services.Time;
+using EasySynQ.Services.Vault;
 using EasySynQ.Tests.TestHelpers;
 
 using Microsoft.EntityFrameworkCore;
@@ -60,6 +61,7 @@ public abstract class ServiceIntegrationTestBase : IDisposable
     public const int TestIterationCount = 1000;
 
     private readonly string _dbPath;
+    private readonly string _vaultRoot;
     private bool _disposed;
 
     /// <summary>Mutable clock; tests may set <c>Clock.UtcNow</c>.</summary>
@@ -87,6 +89,14 @@ public abstract class ServiceIntegrationTestBase : IDisposable
     /// of work in a test.</summary>
     protected IServiceProvider ServiceProvider { get; }
 
+    /// <summary>
+    /// Absolute path to this test's vault root tempdir. Tests that
+    /// poke directly at on-disk vault state (corruption-injection,
+    /// orphan-file checks) read this. The directory is created on
+    /// construction and cleaned up on dispose.
+    /// </summary>
+    protected string VaultRoot => _vaultRoot;
+
     /// <summary>Construct a fresh database and DI graph for this test.</summary>
     protected ServiceIntegrationTestBase()
     {
@@ -105,6 +115,11 @@ public abstract class ServiceIntegrationTestBase : IDisposable
         _dbPath = System.IO.Path.Combine(
             System.IO.Path.GetTempPath(),
             $"easysynq-svc-{Guid.NewGuid():N}.db");
+
+        _vaultRoot = System.IO.Path.Combine(
+            System.IO.Path.GetTempPath(),
+            $"easysynq-vault-{Guid.NewGuid():N}");
+        System.IO.Directory.CreateDirectory(_vaultRoot);
 
         var services = new ServiceCollection();
 
@@ -132,6 +147,12 @@ public abstract class ServiceIntegrationTestBase : IDisposable
         services.AddScoped<IAuthenticationService, AuthenticationService>();
         services.AddScoped<IBootstrapService, BootstrapService>();
         services.AddScoped<ISignatureService, SignatureService>();
+
+        // Vault services (ADR 0008 C2). Path provider is singleton with
+        // a per-test tempdir root; the vault service consumes it
+        // alongside the scoped IVaultBlobRepository + IUnitOfWork.
+        services.AddSingleton<IVaultPathProvider>(new FixedVaultPathProvider(_vaultRoot));
+        services.AddScoped<IVaultService, VaultService>();
 
         // We need a temporary singleton-only provider to resolve the
         // interceptors when building DbContextOptions. The interceptors
@@ -169,6 +190,7 @@ public abstract class ServiceIntegrationTestBase : IDisposable
         services.AddScoped<IUserRoleRepository, UserRoleRepository>();
         services.AddScoped<IPermissionRepository, PermissionRepository>();
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+        services.AddScoped<IVaultBlobRepository, VaultBlobRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         ServiceProvider = services.BuildServiceProvider();
@@ -248,6 +270,19 @@ public abstract class ServiceIntegrationTestBase : IDisposable
         {
             (ServiceProvider as IDisposable)?.Dispose();
             TempSqliteDb.Delete(_dbPath);
+
+            try
+            {
+                if (System.IO.Directory.Exists(_vaultRoot))
+                {
+                    System.IO.Directory.Delete(_vaultRoot, recursive: true);
+                }
+            }
+            catch (System.IO.IOException)
+            {
+                // Best-effort cleanup; per-test vault roots use GUID
+                // suffixes so a stale dir doesn't break isolation.
+            }
         }
 
         _disposed = true;

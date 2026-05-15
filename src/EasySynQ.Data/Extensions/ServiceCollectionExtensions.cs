@@ -5,6 +5,7 @@ using EasySynQ.Services.Abstractions;
 using EasySynQ.Services.Bootstrap;
 using EasySynQ.Services.Identity;
 using EasySynQ.Services.Signatures;
+using EasySynQ.Services.Vault;
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -73,6 +74,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IUserRoleRepository, UserRoleRepository>();
         services.AddScoped<IPermissionRepository, PermissionRepository>();
         services.AddScoped<IAuditLogRepository, AuditLogRepository>();
+        services.AddScoped<IVaultBlobRepository, VaultBlobRepository>();
 
         // Unit of work for explicit cross-save transactions.
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -89,6 +91,13 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAuthenticationService, AuthenticationService>();
         services.AddScoped<IBootstrapService, BootstrapService>();
         services.AddScoped<ISignatureService, SignatureService>();
+
+        // Vault service (ADR 0008 C2). IVaultPathProvider as singleton
+        // — the path is computed once at construction and is read-only
+        // thereafter. VaultService is scoped because it composes with
+        // the scoped IVaultBlobRepository + IUnitOfWork.
+        services.AddSingleton<IVaultPathProvider, DefaultVaultPathProvider>();
+        services.AddScoped<IVaultService, VaultService>();
 
         return services;
     }

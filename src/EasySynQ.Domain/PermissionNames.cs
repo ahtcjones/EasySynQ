@@ -58,14 +58,26 @@ public static class PermissionNames
     public const string AuditLogRead = "AuditLog.Read";
 
     /// <summary>
-    /// Canonical ordered list of every Phase 1 permission name. Used by
-    /// the bootstrap path to fetch the seeded rows in one query.
-    /// Intentionally Phase 1 only — Phase 2+ catalogs are exposed via
-    /// per-phase lists (e.g., <see cref="Phase2Document"/>) so the
-    /// bootstrap administrator continues to receive only the
-    /// IT-side system permissions (ADR 0007 §Decision — Administrator
-    /// is reserved for system administration, not operational
-    /// superuser).
+    /// Physically delete vault blobs (hard-delete the row + remove the
+    /// on-disk file). System-administration capability — Phase 2's
+    /// vault-permission migration adds it to the catalog and seeds the
+    /// Administrator role with it (ADR 0008 C2). Operational document
+    /// hard-delete permissions are separate (<see cref="DocumentHardDelete"/>).
+    /// </summary>
+    public const string VaultPhysicalDelete = "Vault.PhysicalDelete";
+
+    /// <summary>
+    /// Canonical ordered list of every currently-defined system
+    /// permission — the IT-side capabilities that the bootstrap path
+    /// always grants to the Administrator role (ADR 0007 §Decision —
+    /// Administrator is reserved for system administration, not
+    /// operational superuser). The list grows as later phases add
+    /// system-tier capabilities; the bootstrap path consumes it
+    /// verbatim, so adding a name here is sufficient to roll the new
+    /// permission into every fresh install's Administrator grants.
+    /// Phase 2+ operational catalogs are exposed via per-phase lists
+    /// (e.g., <see cref="Phase2Document"/>) and are not granted to
+    /// Administrator by default.
     /// </summary>
     public static IReadOnlyList<string> All { get; } =
     [
@@ -80,6 +92,7 @@ public static class PermissionNames
         UserAssignRoles,
         UserGrantPermissions,
         AuditLogRead,
+        VaultPhysicalDelete,
     ];
 
     // ───────────────────────────────────────────────────────────────

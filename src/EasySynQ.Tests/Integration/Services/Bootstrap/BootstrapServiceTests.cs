@@ -250,14 +250,29 @@ public class BootstrapServiceTests : ServiceIntegrationTestBase
         // verbatim per AuditLogEntry's "system-generated entries"
         // contract; this test pins that behavior.
         //
-        // ADR 0007 grew the bootstrap transaction from 4 rows to 26:
+        // ADR 0007 grew the bootstrap transaction from 4 rows to a
+        // catalog-dependent count. Bootstrap creates one
+        // RolePermission row per name in PermissionNames.All (plus a
+        // companion EffectiveDateRange owned-type audit row per
+        // RolePermission), so the audit-row distribution is a function
+        // of |PermissionNames.All|:
+        //
         //   1 User
         //   1 Role (Administrator)
         //   1 UserRole
         //   1 EffectiveDateRange (UserRole.EffectivePeriod owned-type)
-        //  11 RolePermission (one per Phase 1 system permission)
-        //  11 EffectiveDateRange (one per RolePermission.EffectivePeriod
+        //   N RolePermission (one per current system permission)
+        //   N EffectiveDateRange (one per RolePermission.EffectivePeriod
         //                         owned-type)
+        //
+        // where N = PermissionNames.All.Count. Today (after Phase 2 C2
+        // added Vault.PhysicalDelete) N = 12, total = 28; before C2
+        // landed N = 11, total = 26. The test computes both from
+        // PermissionNames.All.Count so a future system-permission
+        // addition does not require mechanical literal updates here.
+        // See the 2026-05-14 (Phase 2 C2) handoff note for the
+        // narrowing-from-literals-to-catalog-derived shift.
+        //
         // Phase 1 Follow-Up #11 tracks the open ADR on whether to
         // suppress + enrich vs. keep the current owned-type audit
         // shape; this test pins the status quo so that decision is
@@ -273,13 +288,14 @@ public class BootstrapServiceTests : ServiceIntegrationTestBase
         await using var ctx = NewContext();
         var auditRows = await ctx.AuditLogEntries.ToListAsync(Ct);
 
-        const int expectedRowCount =
-            1   // User
-          + 1   // Role
-          + 1   // UserRole
-          + 1   // UserRole's EffectivePeriod (owned)
-          + 11  // RolePermission (one per Phase 1 system permission)
-          + 11; // each RolePermission's EffectivePeriod (owned)
+        var systemPermissionCount = PermissionNames.All.Count;
+        var expectedRowCount =
+            1                          // User
+          + 1                          // Role
+          + 1                          // UserRole
+          + 1                          // UserRole's EffectivePeriod (owned)
+          + systemPermissionCount      // RolePermission (one per current system permission)
+          + systemPermissionCount;     // each RolePermission's EffectivePeriod (owned)
         auditRows.Should().HaveCount(expectedRowCount);
 
         // All rows are UserId-null (system attribution).
@@ -288,21 +304,23 @@ public class BootstrapServiceTests : ServiceIntegrationTestBase
         // All rows share ONE CorrelationId — verifies that the
         // IAuditCorrelationProvider null-fallback in
         // AuditSaveChangesInterceptor produces one correlation per
-        // SaveChanges, not one per entity. Spanning 26 rows instead
-        // of 4 strengthens the per-save-grouping claim considerably.
+        // SaveChanges, not one per entity. Spanning many rows in one
+        // transaction strengthens the per-save-grouping claim
+        // considerably.
         auditRows.Select(r => r.CorrelationId).Distinct().Should().ContainSingle();
 
         // Per-type counts pin the exact distribution. EF Core 10's
         // owned-type tracking emits "EffectiveDateRange" entries for
         // BOTH UserRole.EffectivePeriod and RolePermission.EffectivePeriod
-        // — same CLR type name, twelve total entries (1 + 11).
+        // — same CLR type name; total is 1 (UserRole's) + N
+        // (RolePermissions').
         var byType = auditRows
             .GroupBy(r => r.EntityTypeName)
             .ToDictionary(g => g.Key, g => g.Count());
         byType.Should().ContainKey("User").WhoseValue.Should().Be(1);
         byType.Should().ContainKey("Role").WhoseValue.Should().Be(1);
         byType.Should().ContainKey("UserRole").WhoseValue.Should().Be(1);
-        byType.Should().ContainKey("RolePermission").WhoseValue.Should().Be(11);
-        byType.Should().ContainKey("EffectiveDateRange").WhoseValue.Should().Be(12);
+        byType.Should().ContainKey("RolePermission").WhoseValue.Should().Be(systemPermissionCount);
+        byType.Should().ContainKey("EffectiveDateRange").WhoseValue.Should().Be(1 + systemPermissionCount);
     }
 }

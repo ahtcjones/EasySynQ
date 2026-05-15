@@ -51,6 +51,22 @@ public class LinkLegacyAdministratorMigrationTests : IDisposable
     /// </summary>
     private const string TargetMigrationName = "LinkLegacyAdministratorToSystemPermissions";
 
+    /// <summary>
+    /// Frozen-in-time count of system permissions that existed at the
+    /// commit of <c>LinkLegacyAdministratorToSystemPermissions</c>
+    /// (eleven Phase 1 permissions). Intentionally a literal, NOT
+    /// <c>PermissionNames.All.Count</c>: <c>All</c> is the current
+    /// catalog, and the catalog grows when later phases add system-
+    /// tier permissions (Phase 2 C2 added <c>Vault.PhysicalDelete</c>,
+    /// for example). The migration under test only wrote rows for the
+    /// catalog as it existed at its own commit; the count is
+    /// historical, not current. See the 2026-05-14 (Phase 2 C1)
+    /// session-handoff entry's "seed-data test scoping lesson" — this
+    /// is a sibling case: don't use a current count as a stand-in for
+    /// a historical count.
+    /// </summary>
+    private const int Phase1PermissionCountAtLinkLegacyTime = 11;
+
     private readonly string _dbPath;
     private readonly DbContextOptions<EasySynQDbContext> _options;
     private readonly ITemporalResolver _temporalResolver;
@@ -113,22 +129,40 @@ public class LinkLegacyAdministratorMigrationTests : IDisposable
                 .IgnoreQueryFilters()
                 .ToListAsync(Ct);
 
-            rolePermissions.Should().HaveCount(PermissionNames.All.Count);
+            rolePermissions.Should().HaveCount(Phase1PermissionCountAtLinkLegacyTime);
             rolePermissions.Should().OnlyContain(rp => rp.RoleId == adminRoleId);
             rolePermissions.Should().OnlyContain(rp => rp.EffectivePeriod.EffectiveToUtc == null);
             rolePermissions.Should().OnlyContain(rp => rp.CreatedBy == "system:migration");
             rolePermissions.Should().OnlyContain(rp => rp.ModifiedBy == "system:migration");
 
-            // The eleven linked Permission.Name values match
-            // PermissionNames.All exactly (the catalog seeded by the
-            // prior migration).
+            // The eleven linked Permission.Name values match the
+            // Phase 1 catalog as it existed at the LinkLegacy
+            // migration's commit time. Listed explicitly as a frozen
+            // historical reference — NOT compared against
+            // PermissionNames.All, which grows when later phases add
+            // system-tier permissions (Phase 2 C2 added
+            // Vault.PhysicalDelete).
+            var phase1Names = new[]
+            {
+                PermissionNames.SystemAdminister,
+                PermissionNames.RoleCreate,
+                PermissionNames.RoleEdit,
+                PermissionNames.RoleDelete,
+                PermissionNames.RoleAssignPermissions,
+                PermissionNames.UserCreate,
+                PermissionNames.UserEdit,
+                PermissionNames.UserDisable,
+                PermissionNames.UserAssignRoles,
+                PermissionNames.UserGrantPermissions,
+                PermissionNames.AuditLogRead,
+            };
             var linkedNames = await (
                 from rp in ctx.RolePermissions.IgnoreQueryFilters()
                 join p in ctx.Permissions.IgnoreQueryFilters()
                     on rp.PermissionId equals p.Id
                 select p.Name).ToListAsync(Ct);
 
-            linkedNames.Should().BeEquivalentTo(PermissionNames.All);
+            linkedNames.Should().BeEquivalentTo(phase1Names);
         }
     }
 
