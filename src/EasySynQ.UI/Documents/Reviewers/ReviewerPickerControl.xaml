@@ -1,0 +1,72 @@
+<UserControl x:Class="EasySynQ.UI.Documents.Reviewers.ReviewerPickerControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:reviewers="clr-namespace:EasySynQ.UI.Documents.Reviewers"
+             mc:Ignorable="d"
+             d:DesignHeight="320"
+             d:DesignWidth="320"
+             d:DataContext="{d:DesignInstance Type=reviewers:ReviewerPickerViewModel, IsDesignTimeCreatable=False}">
+
+    <!--
+        ADR 0008 C6b — reviewer picker. Filter textbox on top, multi-
+        select ListBox below. Each row renders a CheckBox + name
+        block; the CheckBox is read-only visual affordance whose
+        IsChecked binds to the ancestor ListBoxItem.IsSelected so the
+        ListBox stays the selection authority (mirrors C4's radio-
+        button pattern). The code-behind syncs ListBox.SelectedItems
+        into the VM's SelectedCandidates so headless tests can read
+        selection state from the VM.
+    -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <!-- Filter textbox -->
+        <TextBox Grid.Row="0"
+                 x:Name="FilterTextBox"
+                 Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged, Mode=TwoWay}"
+                 Margin="0,0,0,8"
+                 Padding="6,4"
+                 AutomationProperties.Name="Filter reviewers" />
+
+        <!-- Multi-select candidate list -->
+        <ListBox Grid.Row="1"
+                 x:Name="CandidatesListBox"
+                 ItemsSource="{Binding FilteredCandidates}"
+                 SelectionMode="Multiple"
+                 BorderBrush="{StaticResource BrushBorder}"
+                 BorderThickness="1"
+                 SelectionChanged="OnSelectionChanged"
+                 AutomationProperties.Name="Eligible reviewers">
+            <ListBox.ItemTemplate>
+                <DataTemplate DataType="{x:Type reviewers:ReviewerCandidate}">
+                    <!--
+                        CheckBox + (DisplayName + Username). CheckBox
+                        is IsHitTestVisible=False so clicks pass to
+                        the ListBoxItem (selection authority); IsChecked
+                        binds OneWay to ancestor ListBoxItem.IsSelected
+                        so the visual matches the selection state.
+                    -->
+                    <StackPanel Orientation="Horizontal" Margin="2">
+                        <CheckBox IsHitTestVisible="False"
+                                  Focusable="False"
+                                  VerticalAlignment="Center"
+                                  Margin="0,0,8,0"
+                                  IsChecked="{Binding RelativeSource={RelativeSource AncestorType=ListBoxItem}, Path=IsSelected, Mode=OneWay}" />
+                        <StackPanel Orientation="Vertical">
+                            <TextBlock Text="{Binding DisplayName}" />
+                            <TextBlock Text="{Binding Username}"
+                                       FontSize="11"
+                                       Opacity="0.7" />
+                        </StackPanel>
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+    </Grid>
+</UserControl>

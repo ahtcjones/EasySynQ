@@ -98,6 +98,20 @@ public class DocumentRevision : SignableEntity
     public Guid? AuthorSignatureId { get; protected set; }
 
     /// <summary>
+    /// Reason supplied by the user who most recently returned this
+    /// revision from <see cref="DocumentLifecycle.InReview"/> to
+    /// <see cref="DocumentLifecycle.Draft"/>, or
+    /// <see langword="null"/> if the revision has never been returned
+    /// (or has since been re-submitted, which clears the field).
+    /// Persisted as plain text on the revision row so the author
+    /// sees the reviewer's reason when the revision lands back in
+    /// Draft. Captured in the audit log's revision-Update row's
+    /// <c>After</c> snapshot naturally; preserved historically there
+    /// even after re-submission clears the live column.
+    /// </summary>
+    public string? LastReturnToDraftReason { get; protected set; }
+
+    /// <summary>
     /// Parameterless constructor for the persistence layer. Do not call
     /// from application code.
     /// </summary>
@@ -216,6 +230,12 @@ public class DocumentRevision : SignableEntity
 
         Lifecycle = DocumentLifecycle.InReview;
         AuthorSignatureId = authorSignatureId;
+        // Re-submitting a revision that was previously returned to
+        // Draft clears the live LastReturnToDraftReason — the live
+        // column tracks the *current* Draft-state reason only. The
+        // prior return reason is preserved in the audit log's
+        // revision-Update row's Before/After snapshots.
+        LastReturnToDraftReason = null;
         // LockedAtUtc has a protected setter on SignableEntity (visible
         // here because we derive from it). One-way per the
         // SignableEntity contract — once set, never reset to null even
@@ -232,12 +252,21 @@ public class DocumentRevision : SignableEntity
     /// <see cref="AuthorSignatureId"/> per ADR 0008 C3 plan §G Q3 — the
     /// previous author signature is preserved in the audit log; on
     /// re-submission a fresh author signature attests to the
-    /// (potentially edited) revision state. <c>LockedAtUtc</c> is NOT
-    /// cleared (one-way per <c>SignableEntity</c>'s contract).
+    /// (potentially edited) revision state. Stamps
+    /// <see cref="LastReturnToDraftReason"/> with the supplied reason
+    /// so the author sees why the revision was returned.
+    /// <c>LockedAtUtc</c> is NOT cleared (one-way per
+    /// <c>SignableEntity</c>'s contract).
     /// </summary>
+    /// <param name="reason">Free-form reason text supplied by the
+    /// caller (reviewer or author with <c>Document.ReturnForEdits</c>).
+    /// Must not be <see langword="null"/>, empty, or whitespace per
+    /// the C6b plan §E "required-reason text box" decision.</param>
     /// <exception cref="InvalidOperationException">Thrown when the
     /// revision is not in InReview.</exception>
-    public void ReturnToDraft()
+    /// <exception cref="ArgumentException">Thrown when
+    /// <paramref name="reason"/> is null, empty, or whitespace.</exception>
+    public void ReturnToDraft(string reason)
     {
         if (Lifecycle != DocumentLifecycle.InReview)
         {
@@ -245,8 +274,11 @@ public class DocumentRevision : SignableEntity
                 $"Cannot return revision {Id} to Draft: current state is '{Lifecycle}', expected '{nameof(DocumentLifecycle.InReview)}'.");
         }
 
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+
         Lifecycle = DocumentLifecycle.Draft;
         AuthorSignatureId = null;
+        LastReturnToDraftReason = reason;
     }
 
     /// <summary>

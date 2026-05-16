@@ -2,6 +2,7 @@ using AwesomeAssertions;
 
 using EasySynQ.Data.Repositories;
 using EasySynQ.Domain.Entities.Identity;
+using EasySynQ.Domain.ValueObjects;
 using EasySynQ.Tests.Integration.Data.Interceptors;
 
 using Microsoft.EntityFrameworkCore;
@@ -158,5 +159,219 @@ public class UserRepositoryTests : InterceptorIntegrationTestBase
 
         Func<Task> act = async () => await repo.GetByIdsAsync(null!, Ct);
         await act.Should().ThrowAsync<ArgumentNullException>();
+    }
+
+    // ─── GetUsersWithPermissionAsync (C6b) ───────────────────────────
+
+    private static readonly DateTime PermAsOf =
+        new(2026, 5, 16, 12, 0, 0, DateTimeKind.Utc);
+
+    private static EffectiveDateRange OpenAt(DateTime fromUtc) => new(fromUtc, null);
+    private static EffectiveDateRange ClosedWindow(DateTime fromUtc, DateTime toUtc)
+        => new(fromUtc, toUtc);
+
+    [Fact]
+    public async Task GetUsersWithPermissionAsync_UnknownPermissionName_ReturnsEmptyAsync()
+    {
+        await using (var ctx = NewContext())
+        {
+            ctx.Users.Add(new User(Guid.NewGuid(), "ghost", "G", "h", "s", 1000, false));
+            await ctx.SaveChangesAsync(Ct);
+        }
+
+        await using var ctx2 = NewContext();
+        var repo = new UserRepository(ctx2);
+        var result = await repo.GetUsersWithPermissionAsync(
+            "Nonexistent.Permission", PermAsOf, Ct);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetUsersWithPermissionAsync_RolePath_ReturnsUserAsync()
+    {
+        var userId = Guid.NewGuid();
+        var roleId = Guid.NewGuid();
+        var perm = new Permission(Guid.NewGuid(), "Doc.Review.Test", "review", "Document");
+
+        await using (var ctx = NewContext())
+        {
+            ctx.Users.Add(new User(userId, "alice", "Alice", "h", "s", 1000, false));
+            ctx.Roles.Add(new Role(roleId, "Reviewer", "Reviewer."));
+            ctx.Permissions.Add(perm);
+            ctx.UserRoles.Add(new UserRole(
+                Guid.NewGuid(), userId, roleId, OpenAt(PermAsOf.AddDays(-1))));
+            ctx.RolePermissions.Add(new RolePermission(
+                Guid.NewGuid(), roleId, perm.Id, OpenAt(PermAsOf.AddDays(-1))));
+            await ctx.SaveChangesAsync(Ct);
+        }
+
+        await using var ctx2 = NewContext();
+        var repo = new UserRepository(ctx2);
+        var result = await repo.GetUsersWithPermissionAsync(perm.Name, PermAsOf, Ct);
+
+        result.Should().ContainSingle().Which.Id.Should().Be(userId);
+    }
+
+    [Fact]
+    public async Task GetUsersWithPermissionAsync_DirectGrantPath_ReturnsUserAsync()
+    {
+        var userId = Guid.NewGuid();
+        var perm = new Permission(Guid.NewGuid(), "Doc.Review.Direct", "direct", "Document");
+
+        await using (var ctx = NewContext())
+        {
+            ctx.Users.Add(new User(userId, "bob", "Bob", "h", "s", 1000, false));
+            ctx.Permissions.Add(perm);
+            ctx.UserPermissions.Add(new UserPermission(
+                Guid.NewGuid(), userId, perm.Id, OpenAt(PermAsOf.AddDays(-1))));
+            await ctx.SaveChangesAsync(Ct);
+        }
+
+        await using var ctx2 = NewContext();
+        var repo = new UserRepository(ctx2);
+        var result = await repo.GetUsersWithPermissionAsync(perm.Name, PermAsOf, Ct);
+
+        result.Should().ContainSingle().Which.Id.Should().Be(userId);
+    }
+
+    [Fact]
+    public async Task GetUsersWithPermissionAsync_DedupesUserReachedByBothPathsAsync()
+    {
+        var userId = Guid.NewGuid();
+        var roleId = Guid.NewGuid();
+        var perm = new Permission(Guid.NewGuid(), "Doc.Review.Both", "both", "Document");
+
+        await using (var ctx = NewContext())
+        {
+            ctx.Users.Add(new User(userId, "carol", "Carol", "h", "s", 1000, false));
+            ctx.Roles.Add(new Role(roleId, "Dual", "Dual."));
+            ctx.Permissions.Add(perm);
+            ctx.UserRoles.Add(new UserRole(
+                Guid.NewGuid(), userId, roleId, OpenAt(PermAsOf.AddDays(-1))));
+            ctx.RolePermissions.Add(new RolePermission(
+                Guid.NewGuid(), roleId, perm.Id, OpenAt(PermAsOf.AddDays(-1))));
+            ctx.UserPermissions.Add(new UserPermission(
+                Guid.NewGuid(), userId, perm.Id, OpenAt(PermAsOf.AddDays(-1))));
+            await ctx.SaveChangesAsync(Ct);
+        }
+
+        await using var ctx2 = NewContext();
+        var repo = new UserRepository(ctx2);
+        var result = await repo.GetUsersWithPermissionAsync(perm.Name, PermAsOf, Ct);
+
+        result.Should().ContainSingle().Which.Id.Should().Be(userId);
+    }
+
+    [Fact]
+    public async Task GetUsersWithPermissionAsync_ExcludesSoftDeletedUserAsync()
+    {
+        var aliveId = Guid.NewGuid();
+        var deletedId = Guid.NewGuid();
+        var roleId = Guid.NewGuid();
+        var perm = new Permission(Guid.NewGuid(), "Doc.Review.Sd", "sd", "Document");
+
+        await using (var ctx = NewContext())
+        {
+            var alive = new User(aliveId, "alive", "Alive", "h", "s", 1000, false);
+            var deleted = new User(deletedId, "deleted", "Deleted", "h", "s", 1000, false);
+            ctx.Users.AddRange(alive, deleted);
+            ctx.Roles.Add(new Role(roleId, "R", "R."));
+            ctx.Permissions.Add(perm);
+            ctx.UserRoles.AddRange(
+                new UserRole(Guid.NewGuid(), aliveId, roleId, OpenAt(PermAsOf.AddDays(-1))),
+                new UserRole(Guid.NewGuid(), deletedId, roleId, OpenAt(PermAsOf.AddDays(-1))));
+            ctx.RolePermissions.Add(new RolePermission(
+                Guid.NewGuid(), roleId, perm.Id, OpenAt(PermAsOf.AddDays(-1))));
+            await ctx.SaveChangesAsync(Ct);
+
+            ctx.Entry(deleted).Property(nameof(User.IsDeleted)).CurrentValue = true;
+            await ctx.SaveChangesAsync(Ct);
+        }
+
+        await using var ctx2 = NewContext();
+        var repo = new UserRepository(ctx2);
+        var result = await repo.GetUsersWithPermissionAsync(perm.Name, PermAsOf, Ct);
+
+        result.Should().ContainSingle().Which.Id.Should().Be(aliveId);
+    }
+
+    [Fact]
+    public async Task GetUsersWithPermissionAsync_ExpiredRoleAssignmentExcludedAsync()
+    {
+        var userId = Guid.NewGuid();
+        var roleId = Guid.NewGuid();
+        var perm = new Permission(Guid.NewGuid(), "Doc.Review.Exp", "exp", "Document");
+
+        await using (var ctx = NewContext())
+        {
+            ctx.Users.Add(new User(userId, "ex", "Ex", "h", "s", 1000, false));
+            ctx.Roles.Add(new Role(roleId, "R", "R."));
+            ctx.Permissions.Add(perm);
+            ctx.UserRoles.Add(new UserRole(
+                Guid.NewGuid(), userId, roleId,
+                ClosedWindow(PermAsOf.AddDays(-10), PermAsOf.AddDays(-1))));
+            ctx.RolePermissions.Add(new RolePermission(
+                Guid.NewGuid(), roleId, perm.Id, OpenAt(PermAsOf.AddDays(-10))));
+            await ctx.SaveChangesAsync(Ct);
+        }
+
+        await using var ctx2 = NewContext();
+        var repo = new UserRepository(ctx2);
+        var result = await repo.GetUsersWithPermissionAsync(perm.Name, PermAsOf, Ct);
+
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetUsersWithPermissionAsync_ExpiredDirectGrantExcludedAsync()
+    {
+        var userId = Guid.NewGuid();
+        var perm = new Permission(Guid.NewGuid(), "Doc.Review.ExpD", "expd", "Document");
+
+        await using (var ctx = NewContext())
+        {
+            ctx.Users.Add(new User(userId, "ed", "Ed", "h", "s", 1000, false));
+            ctx.Permissions.Add(perm);
+            ctx.UserPermissions.Add(new UserPermission(
+                Guid.NewGuid(), userId, perm.Id,
+                ClosedWindow(PermAsOf.AddDays(-10), PermAsOf.AddDays(-1))));
+            await ctx.SaveChangesAsync(Ct);
+        }
+
+        await using var ctx2 = NewContext();
+        var repo = new UserRepository(ctx2);
+        var result = await repo.GetUsersWithPermissionAsync(perm.Name, PermAsOf, Ct);
+
+        result.Should().BeEmpty();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task GetUsersWithPermissionAsync_NullOrWhitespacePermissionName_ThrowsAsync(string? name)
+    {
+        await using var ctx = NewContext();
+        var repo = new UserRepository(ctx);
+
+        Func<Task> act = async () =>
+            await repo.GetUsersWithPermissionAsync(name!, PermAsOf, Ct);
+
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
+    public async Task GetUsersWithPermissionAsync_NonUtcAsOf_ThrowsAsync()
+    {
+        await using var ctx = NewContext();
+        var repo = new UserRepository(ctx);
+        var localKind = new DateTime(2026, 5, 16, 12, 0, 0, DateTimeKind.Local);
+
+        Func<Task> act = async () =>
+            await repo.GetUsersWithPermissionAsync("Doc.Review", localKind, Ct);
+
+        await act.Should().ThrowAsync<ArgumentException>()
+            .WithMessage("*asOfUtc*Utc*");
     }
 }

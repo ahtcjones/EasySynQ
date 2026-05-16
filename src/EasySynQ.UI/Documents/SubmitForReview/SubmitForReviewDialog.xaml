@@ -1,0 +1,117 @@
+<Window x:Class="EasySynQ.UI.Documents.SubmitForReview.SubmitForReviewDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:sfr="clr-namespace:EasySynQ.UI.Documents.SubmitForReview"
+        xmlns:reviewers="clr-namespace:EasySynQ.UI.Documents.Reviewers"
+        mc:Ignorable="d"
+        Title="EasySynQ — Submit for review"
+        Width="480"
+        Height="520"
+        ResizeMode="NoResize"
+        SizeToContent="Manual"
+        WindowStyle="SingleBorderWindow"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Loaded="OnLoadedAsync"
+        d:DataContext="{d:DesignInstance Type=sfr:SubmitForReviewViewModel, IsDesignTimeCreatable=False}">
+
+    <!--
+        ADR 0008 C6b stop 3 — Submit-for-Review modal. Single card
+        centered in the window. Reviewer picker (embedded user
+        control) above the Submit / Cancel row. The notes field
+        listed in the plan §C markup is deferred per the stop-3
+        scope-creep flag (docs/SCRATCHPAD.md); the dialog ships
+        without dead UI.
+    -->
+    <Grid>
+        <Border Background="{StaticResource BrushSurface}"
+                BorderBrush="{StaticResource BrushBorder}"
+                BorderThickness="1"
+                CornerRadius="12"
+                Width="420"
+                Padding="24"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Title -->
+                <TextBlock Grid.Row="0"
+                           Style="{StaticResource TextStyleHeading}"
+                           Text="Submit for review"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,4" />
+
+                <!-- Subtitle -->
+                <TextBlock Grid.Row="1"
+                           Style="{StaticResource TextStyleCaption}"
+                           Text="Pick at least one reviewer. You can filter by name or username."
+                           HorizontalAlignment="Center"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,16" />
+
+                <!-- Loading indicator -->
+                <TextBlock Grid.Row="2"
+                           Text="Loading reviewers…"
+                           Style="{StaticResource TextStyleCaption}"
+                           Foreground="{StaticResource BrushTextDim}"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,8"
+                           Visibility="{Binding IsLoadingCandidates, Converter={StaticResource BoolToVisibility}}" />
+
+                <!-- Reviewer picker (embedded) -->
+                <reviewers:ReviewerPickerControl Grid.Row="3"
+                                                 x:Name="PickerControl"
+                                                 DataContext="{Binding Picker}"
+                                                 Margin="0,0,0,16" />
+
+                <!-- Error row (red surface, hidden until something fails) -->
+                <Border Grid.Row="4"
+                        Background="{StaticResource BrushRedBg}"
+                        BorderBrush="{StaticResource BrushRed}"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="8,6"
+                        Margin="0,0,0,12"
+                        Visibility="{Binding ErrorMessage, Converter={StaticResource NullOrEmptyToVisibility}}">
+                    <TextBlock Text="{Binding ErrorMessage}"
+                               Foreground="{StaticResource BrushRed}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Submit error message" />
+                </Border>
+
+                <!-- Action row: Cancel + Submit -->
+                <StackPanel Grid.Row="5"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                    <Button x:Name="CancelButton"
+                            Content="Cancel"
+                            Command="{Binding CancelCommand}"
+                            IsCancel="True"
+                            Width="88"
+                            Height="32"
+                            Margin="0,0,8,0"
+                            AutomationProperties.Name="Cancel" />
+                    <Button x:Name="SubmitButton"
+                            Style="{StaticResource ButtonPrimary}"
+                            Content="Submit for review"
+                            Command="{Binding SubmitCommand}"
+                            IsDefault="True"
+                            Width="140"
+                            Height="32"
+                            AutomationProperties.Name="Submit for review" />
+                </StackPanel>
+
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

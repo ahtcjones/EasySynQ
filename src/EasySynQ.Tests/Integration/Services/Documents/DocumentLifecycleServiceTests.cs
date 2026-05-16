@@ -362,7 +362,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         Correlation.CurrentCorrelationId = corr;
         await using (var scope = NewScope())
         {
-            await Lifecycle(scope).ReturnToDraftAsync(revisionId, Ct);
+            await Lifecycle(scope).ReturnToDraftAsync(revisionId, "test return reason", Ct);
         }
 
         await using (var ctx = NewContext())
@@ -372,6 +372,8 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
             rev.AuthorSignatureId.Should().BeNull();
             // LockedAtUtc preserved per SignableEntity contract.
             rev.LockedAtUtc.Should().NotBeNull();
+            // C6b: reason stamped on the revision so the author sees it.
+            rev.LastReturnToDraftReason.Should().Be("test return reason");
 
             var assignments = await ctx.DocumentReviewAssignments
                 .Where(a => a.DocumentRevisionId == revisionId)
@@ -380,10 +382,72 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
             assignments.Should().OnlyContain(a => a.Status == DocumentReviewAssignmentStatus.Discarded);
         }
 
-        // Audit count for return = 1 + N (revision Update, N assignment Updates).
+        // Audit count for return = 1 + N (revision Update, N assignment
+        // Updates). The reason rides on the revision-Update row's After
+        // snapshot — adding the reason parameter does not change the
+        // 1+N formula.
         var rows = await AuditRowsByCorrelationAsync(corr);
         const int reviewerCount = 2;
         rows.Count.Should().Be(1 + reviewerCount);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task ReturnToDraft_NullOrWhitespaceReason_ThrowsAsync(string? reason)
+    {
+        var authorId = Guid.NewGuid();
+        var (_, revisionId) = await SeedDocumentAndDraftAsync(authorId);
+        var reviewer = Guid.NewGuid();
+        BecomeAuthor(authorId);
+
+        await using (var scope = NewScope())
+        {
+            await Lifecycle(scope).SubmitForReviewAsync(
+                revisionId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
+        }
+
+        await using var scope2 = NewScope();
+        Func<Task> act = async () =>
+            await Lifecycle(scope2).ReturnToDraftAsync(revisionId, reason!, Ct);
+
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
+    public async Task ReturnToDraft_ResubmitAfterReturn_ClearsLastReturnReasonAsync()
+    {
+        var authorId = Guid.NewGuid();
+        var (_, revisionId) = await SeedDocumentAndDraftAsync(authorId);
+        var reviewer = Guid.NewGuid();
+        BecomeAuthor(authorId);
+
+        await using (var scope = NewScope())
+        {
+            await Lifecycle(scope).SubmitForReviewAsync(
+                revisionId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
+        }
+
+        await using (var scope = NewScope())
+        {
+            await Lifecycle(scope).ReturnToDraftAsync(revisionId, "first reject", Ct);
+        }
+
+        await using (var scope = NewScope())
+        {
+            await Lifecycle(scope).SubmitForReviewAsync(
+                revisionId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var rev = await ctx.DocumentRevisions.SingleAsync(r => r.Id == revisionId, Ct);
+            rev.Lifecycle.Should().Be(DocumentLifecycle.InReview);
+            // C6b: re-submission clears the live reason — the prior
+            // value survives in the audit log only.
+            rev.LastReturnToDraftReason.Should().BeNull();
+        }
     }
 
     [Fact]
@@ -412,7 +476,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         BecomeAuthor(authorId);
         await using (var scope = NewScope())
         {
-            await Lifecycle(scope).ReturnToDraftAsync(revisionId, Ct);
+            await Lifecycle(scope).ReturnToDraftAsync(revisionId, "test return reason", Ct);
         }
 
         await using (var ctx = NewContext())
@@ -445,7 +509,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         BecomeAuthor(authorId);
 
         await using var scope = NewScope();
-        Func<Task> act = async () => await Lifecycle(scope).ReturnToDraftAsync(revisionId, Ct);
+        Func<Task> act = async () => await Lifecycle(scope).ReturnToDraftAsync(revisionId, "test return reason", Ct);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
     }
@@ -470,7 +534,7 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
             .ToList();
 
         await using var scope2 = NewScope();
-        Func<Task> act = async () => await Lifecycle(scope2).ReturnToDraftAsync(revisionId, Ct);
+        Func<Task> act = async () => await Lifecycle(scope2).ReturnToDraftAsync(revisionId, "test return reason", Ct);
 
         var ex = (await act.Should().ThrowAsync<UnauthorizedOperationException>()).Subject.Single();
         ex.PermissionName.Should().Be(PermissionNames.DocumentReturnForEdits);
@@ -894,5 +958,163 @@ public class DocumentLifecycleServiceTests : ServiceIntegrationTestBase
         Func<Task> act = async () => await Lifecycle(scope).SubmitForReviewAsync(
             Guid.NewGuid(), [Guid.NewGuid()], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
         await act.Should().ThrowAsync<KeyNotFoundException>();
+    }
+
+    // ─── AddCommentAsync (C6b) ──────────────────────────────────────
+
+    [Fact]
+    public async Task AddComment_HappyPath_InsertsCommentAndOneAuditRowAsync()
+    {
+        var authorId = Guid.NewGuid();
+        var (_, revisionId) = await SeedDocumentAndDraftAsync(authorId);
+        var reviewer = Guid.NewGuid();
+        BecomeAuthor(authorId);
+
+        await using (var scope = NewScope())
+        {
+            await Lifecycle(scope).SubmitForReviewAsync(
+                revisionId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
+        }
+
+        BecomeReviewer(reviewer);
+        var corr = Guid.NewGuid();
+        Correlation.CurrentCorrelationId = corr;
+
+        await using (var scope = NewScope())
+        {
+            var comment = await Lifecycle(scope).AddCommentAsync(
+                revisionId, "this section needs more detail", Ct);
+
+            comment.Id.Should().NotBe(Guid.Empty);
+            comment.DocumentRevisionId.Should().Be(revisionId);
+            comment.AuthorUserId.Should().Be(reviewer);
+            comment.BodyText.Should().Be("this section needs more detail");
+            comment.CreatedAtUtc.Should().Be(Clock.UtcNow);
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var comments = await ctx.DocumentReviewComments
+                .Where(c => c.DocumentRevisionId == revisionId)
+                .ToListAsync(Ct);
+            comments.Should().ContainSingle()
+                .Which.BodyText.Should().Be("this section needs more detail");
+        }
+
+        // Audit row count = 1 (comment Insert).
+        var rows = await AuditRowsByCorrelationAsync(corr);
+        rows.Count.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task AddComment_NotInReview_ThrowsAsync()
+    {
+        var authorId = Guid.NewGuid();
+        var (_, revisionId) = await SeedDocumentAndDraftAsync(authorId);
+        // Revision still in Draft — never submitted.
+        BecomeReviewer(Guid.NewGuid());
+
+        await using var scope = NewScope();
+        Func<Task> act = async () =>
+            await Lifecycle(scope).AddCommentAsync(revisionId, "premature", Ct);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*Cannot add a comment*expected 'InReview'*");
+    }
+
+    [Fact]
+    public async Task AddComment_MissingPermission_ThrowsAsync()
+    {
+        var authorId = Guid.NewGuid();
+        var (_, revisionId) = await SeedDocumentAndDraftAsync(authorId);
+        var reviewer = Guid.NewGuid();
+        BecomeAuthor(authorId);
+
+        await using (var scope = NewScope())
+        {
+            await Lifecycle(scope).SubmitForReviewAsync(
+                revisionId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
+        }
+
+        // Strip Document.Review.
+        BecomeReviewer(reviewer);
+        CurrentUser.Permissions = [];
+        CurrentUser.RolePermissions = new Dictionary<string, IReadOnlyCollection<string>>(
+            StringComparer.Ordinal)
+        {
+            [ReviewerRole] = [],
+        };
+
+        await using var scope2 = NewScope();
+        Func<Task> act = async () =>
+            await Lifecycle(scope2).AddCommentAsync(revisionId, "denied", Ct);
+
+        var ex = (await act.Should().ThrowAsync<UnauthorizedOperationException>()).Subject.Single();
+        ex.PermissionName.Should().Be(PermissionNames.DocumentReview);
+    }
+
+    [Fact]
+    public async Task AddComment_UnknownRevision_ThrowsKeyNotFoundAsync()
+    {
+        BecomeReviewer(Guid.NewGuid());
+
+        await using var scope = NewScope();
+        Func<Task> act = async () =>
+            await Lifecycle(scope).AddCommentAsync(Guid.NewGuid(), "ghost", Ct);
+
+        await act.Should().ThrowAsync<KeyNotFoundException>();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task AddComment_NullOrWhitespaceBody_ThrowsAsync(string? body)
+    {
+        var authorId = Guid.NewGuid();
+        var (_, revisionId) = await SeedDocumentAndDraftAsync(authorId);
+        var reviewer = Guid.NewGuid();
+        BecomeAuthor(authorId);
+
+        await using (var scope = NewScope())
+        {
+            await Lifecycle(scope).SubmitForReviewAsync(
+                revisionId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
+        }
+
+        BecomeReviewer(reviewer);
+
+        await using var scope2 = NewScope();
+        Func<Task> act = async () =>
+            await Lifecycle(scope2).AddCommentAsync(revisionId, body!, Ct);
+
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
+
+    [Fact]
+    public async Task AddComment_NoAuthenticatedUser_ThrowsAsync()
+    {
+        var authorId = Guid.NewGuid();
+        var (_, revisionId) = await SeedDocumentAndDraftAsync(authorId);
+        var reviewer = Guid.NewGuid();
+        BecomeAuthor(authorId);
+
+        await using (var scope = NewScope())
+        {
+            await Lifecycle(scope).SubmitForReviewAsync(
+                revisionId, [reviewer], effectiveFromUtc: null, signingAsRole: AuthorRole, Ct);
+        }
+
+        // Unauthenticated.
+        CurrentUser.UserId = null;
+        CurrentUser.Username = string.Empty;
+        CurrentUser.Roles = [];
+        CurrentUser.Permissions = [];
+
+        await using var scope2 = NewScope();
+        Func<Task> act = async () =>
+            await Lifecycle(scope2).AddCommentAsync(revisionId, "anon", Ct);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
     }
 }

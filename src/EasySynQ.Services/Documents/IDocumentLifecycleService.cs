@@ -88,12 +88,24 @@ public interface IDocumentLifecycleService
     /// §"Signatures reset" — both Pending and already-Signed
     /// assignments transition to Discarded; <c>Signature</c> rows are
     /// preserved unchanged in the audit log). Clears
-    /// <c>AuthorSignatureId</c> per ADR 0008 C3 plan §G Q3.
-    /// <c>LockedAtUtc</c> is preserved (one-way per the SignableEntity
-    /// contract).
+    /// <c>AuthorSignatureId</c> per ADR 0008 C3 plan §G Q3 and
+    /// stamps <see cref="DocumentRevision.LastReturnToDraftReason"/>
+    /// with <paramref name="reason"/> so the author sees why the
+    /// revision came back. <c>LockedAtUtc</c> is preserved (one-way
+    /// per the SignableEntity contract).
     /// </summary>
+    /// <remarks>
+    /// <b>Audit-row count: 1 + N.</b> Revision Update +
+    /// N assignment Updates (N = number of non-Discarded
+    /// assignments). The reason travels on the revision-Update row's
+    /// <c>After</c> snapshot; adding the reason parameter does not
+    /// change the audit-row formula (ADR 0008 C6b).
+    /// </remarks>
     /// <param name="revisionId">Revision to return to Draft. Must be in
     /// <c>InReview</c>.</param>
+    /// <param name="reason">Free-form reason supplied by the caller.
+    /// Must not be <see langword="null"/>, empty, or whitespace per
+    /// the C6b plan §E "required-reason text box" decision.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The persisted revision in its post-return state.</returns>
     /// <exception cref="System.Collections.Generic.KeyNotFoundException">Thrown
@@ -103,8 +115,11 @@ public interface IDocumentLifecycleService
     /// <exception cref="System.InvalidOperationException">Thrown when no
     /// authenticated user is available, or the revision is not in
     /// InReview.</exception>
+    /// <exception cref="System.ArgumentException">Thrown when
+    /// <paramref name="reason"/> is null, empty, or whitespace.</exception>
     Task<DocumentRevision> ReturnToDraftAsync(
         Guid revisionId,
+        string reason,
         CancellationToken cancellationToken);
 
     /// <summary>
@@ -349,4 +364,52 @@ public interface IDocumentLifecycleService
     /// multiple revisions, the single revision is not in <c>Draft</c>,
     /// or the current user is not the revision's author.</exception>
     Task HardDeleteDraftAsync(Guid documentId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Adds a reviewer comment to a revision currently in
+    /// <see cref="EasySynQ.Domain.Enums.DocumentLifecycle.InReview"/>
+    /// (ADR 0008 C6b). Captures the author's <c>UserId</c> from the
+    /// current-user accessor and the comment's
+    /// <c>CreatedAtUtc</c> from the clock; the body text is
+    /// caller-supplied.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Audit-row count: 1.</b> <see cref="DocumentReviewComment"/>
+    /// Insert. One <c>SaveChanges</c>.
+    /// </para>
+    /// <para>
+    /// <b>Permission gate.</b> The same <c>Document.Review</c>
+    /// permission that authorizes reviewer signatures also
+    /// authorizes commenting. The author themself, if they also
+    /// hold <c>Document.Review</c> (e.g., author-as-own-reviewer in
+    /// permissive deployments), may comment via this method.
+    /// </para>
+    /// <para>
+    /// <b>State gate.</b> Comments are accepted only while the
+    /// revision is in InReview. Once the revision returns to Draft
+    /// or transitions to Approved, the comment surface closes;
+    /// comment edits and deletions are deferred per the C6b plan's
+    /// out-of-scope list.
+    /// </para>
+    /// </remarks>
+    /// <param name="revisionId">Revision to comment on. Must be in
+    /// <c>InReview</c>.</param>
+    /// <param name="bodyText">Comment body. Must not be
+    /// <see langword="null"/>, empty, or whitespace.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The persisted comment in its post-insert state.</returns>
+    /// <exception cref="System.Collections.Generic.KeyNotFoundException">Thrown
+    /// when no revision with the supplied id exists.</exception>
+    /// <exception cref="EasySynQ.Services.Authorization.UnauthorizedOperationException">Thrown
+    /// when the current user lacks <c>Document.Review</c>.</exception>
+    /// <exception cref="System.InvalidOperationException">Thrown when
+    /// no authenticated user is available, or the revision is not in
+    /// InReview.</exception>
+    /// <exception cref="System.ArgumentException">Thrown when
+    /// <paramref name="bodyText"/> is null, empty, or whitespace.</exception>
+    Task<DocumentReviewComment> AddCommentAsync(
+        Guid revisionId,
+        string bodyText,
+        CancellationToken cancellationToken);
 }

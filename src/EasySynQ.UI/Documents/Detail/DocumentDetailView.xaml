@@ -5,21 +5,23 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:detail="clr-namespace:EasySynQ.UI.Documents.Detail"
              xmlns:controls="clr-namespace:EasySynQ.UI.Documents.Controls"
+             xmlns:comments="clr-namespace:EasySynQ.UI.Documents.Comments"
              mc:Ignorable="d"
-             d:DesignWidth="720"
+             d:DesignWidth="900"
              d:DesignHeight="700"
              d:DataContext="{d:DesignInstance Type=detail:DocumentDetailViewModel, IsDesignTimeCreatable=False}"
              Loaded="OnLoadedAsync">
 
     <!--
-        Four-row layout:
-        - Metadata header (Number/Title) + lifecycle + revision label
-        - Affordance row (Edit Metadata / Replace PDF / Hard-Delete)
-        - Viewer error banner (Auto height; collapsed when no error)
-        - PdfViewerControl (fills)
+        ADR 0008 C6b stop 7 — detail view layout.
+        Rows: metadata header, last-return-reason banner (when
+        present), affordance row, viewer error banner, main content
+        area (viewer left + InReview side panel right when
+        applicable).
     -->
     <Grid Margin="16">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
@@ -66,14 +68,37 @@
             </Border>
         </Grid>
 
+        <!-- C6b: Last return-to-draft reason. Visible only when the
+             current revision is in Draft after having been returned
+             from In Review (LastReturnToDraftReason non-null). Author
+             sees the reviewer's reason while editing. Amber-tinted
+             per UI discipline (review-needed signal). -->
+        <Border Grid.Row="1"
+                Background="{StaticResource BrushAmberBg}"
+                BorderBrush="{StaticResource BrushAmber}"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="12,8,12,8"
+                Margin="0,0,0,12"
+                Visibility="{Binding HasLastReturnToDraftReason, Converter={StaticResource BoolToVisibility}}">
+            <StackPanel>
+                <TextBlock Text="Returned for edits — reason:"
+                           Style="{StaticResource TextStyleLabel}"
+                           Foreground="{StaticResource BrushAmber}"
+                           Margin="0,0,0,2" />
+                <TextBlock Text="{Binding LastReturnToDraftReason}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="Last return-to-draft reason" />
+            </StackPanel>
+        </Border>
+
         <!-- Affordance row.
              Per the C6a no-stubs rule, buttons are HIDDEN (not just
-             disabled) when their CanExecute is false. The state-aware
-             VM toggles CanEditMetadata / CanReplacePdf / CanHardDelete
-             based on lifecycle + permissions + authorship; the
-             Visibility binding via BoolToVisibility consumes those
-             flags. -->
-        <StackPanel Grid.Row="1"
+             disabled) when their CanExecute is false. C6b adds three
+             new buttons (Submit for review / Review and sign /
+             Return to draft); their visibility binds to the matching
+             CanXxx flag. -->
+        <StackPanel Grid.Row="2"
                     Orientation="Horizontal"
                     Margin="0,0,0,12">
             <Button Content="Edit metadata"
@@ -86,18 +111,31 @@
                     Visibility="{Binding CanReplacePdf, Converter={StaticResource BoolToVisibility}}"
                     Margin="0,0,8,0"
                     AutomationProperties.Name="Replace attached PDF" />
+            <Button Content="Submit for review"
+                    Style="{StaticResource ButtonPrimary}"
+                    Command="{Binding SubmitForReviewCommand}"
+                    Visibility="{Binding CanSubmitForReview, Converter={StaticResource BoolToVisibility}}"
+                    Margin="0,0,8,0"
+                    AutomationProperties.Name="Submit document for review" />
+            <Button Content="Review and sign"
+                    Style="{StaticResource ButtonPrimary}"
+                    Command="{Binding ReviewAndSignCommand}"
+                    Visibility="{Binding CanReviewAndSign, Converter={StaticResource BoolToVisibility}}"
+                    Margin="0,0,8,0"
+                    AutomationProperties.Name="Review and sign as reviewer" />
+            <Button Content="Return to draft"
+                    Command="{Binding ReturnToDraftCommand}"
+                    Visibility="{Binding CanReturnToDraft, Converter={StaticResource BoolToVisibility}}"
+                    Margin="0,0,8,0"
+                    AutomationProperties.Name="Return document to draft" />
             <Button Content="Hard-delete draft"
                     Command="{Binding HardDeleteDraftCommand}"
                     Visibility="{Binding CanHardDelete, Converter={StaticResource BoolToVisibility}}"
                     AutomationProperties.Name="Hard-delete this draft" />
         </StackPanel>
 
-        <!-- Viewer error banner. Visibility binds to
-             HasViewerLoadError; the VM also resets the flag on every
-             successful LoadAsync so a stale banner doesn't linger
-             across navigation. Red palette per CLAUDE.md UI rules
-             (red = failure / lockout). -->
-        <Border Grid.Row="2"
+        <!-- Viewer error banner. -->
+        <Border Grid.Row="3"
                 Background="{StaticResource BrushRedBg}"
                 BorderBrush="{StaticResource BrushRed}"
                 BorderThickness="1"
@@ -112,33 +150,106 @@
                        AutomationProperties.Name="PDF viewer load error" />
         </Border>
 
-        <!-- PDF viewer (or "no PDF attached" placeholder) -->
-        <Border Grid.Row="3"
-                Background="{StaticResource BrushSurface2}"
-                BorderBrush="{StaticResource BrushBorder}"
-                BorderThickness="1"
-                CornerRadius="6">
-            <Grid>
-                <!-- Placeholder shown when no VaultBlob is attached. -->
-                <StackPanel HorizontalAlignment="Center"
-                            VerticalAlignment="Center"
-                            Visibility="{Binding VaultDocumentUrl, Converter={StaticResource NullToVisibility}}">
-                    <TextBlock Style="{StaticResource TextStyleCaption}"
-                               Text="No PDF attached to this revision."
-                               HorizontalAlignment="Center" />
-                </StackPanel>
+        <!-- Main content area: viewer on left, InReview side panel
+             (assignments + comments) on right. Side panel collapses
+             when not InReview so the viewer fills the row. -->
+        <Grid Grid.Row="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
 
-                <!-- Viewer is collapsed when no URL so its WebView2
-                     instance doesn't try to navigate to nothing. The
-                     control raises NavigationFailed which the
-                     code-behind forwards to the VM's banner state. -->
-                <controls:PdfViewerControl
-                    x:Name="PdfViewer"
-                    DocumentPath="{Binding VaultDocumentUrl}"
-                    ContentRoot="{Binding ContentRoot}"
-                    NavigationFailed="OnViewerNavigationFailed"
-                    Visibility="{Binding VaultDocumentUrl, Converter={StaticResource NullOrEmptyToVisibility}}" />
-            </Grid>
-        </Border>
+            <!-- PDF viewer / placeholder -->
+            <Border Grid.Column="0"
+                    Background="{StaticResource BrushSurface2}"
+                    BorderBrush="{StaticResource BrushBorder}"
+                    BorderThickness="1"
+                    CornerRadius="6">
+                <Grid>
+                    <StackPanel HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                Visibility="{Binding VaultDocumentUrl, Converter={StaticResource NullToVisibility}}">
+                        <TextBlock Style="{StaticResource TextStyleCaption}"
+                                   Text="No PDF attached to this revision."
+                                   HorizontalAlignment="Center" />
+                    </StackPanel>
+                    <controls:PdfViewerControl
+                        x:Name="PdfViewer"
+                        DocumentPath="{Binding VaultDocumentUrl}"
+                        ContentRoot="{Binding ContentRoot}"
+                        NavigationFailed="OnViewerNavigationFailed"
+                        Visibility="{Binding VaultDocumentUrl, Converter={StaticResource NullOrEmptyToVisibility}}" />
+                </Grid>
+            </Border>
+
+            <!-- InReview side panel (assignments + comments).
+                 Width-fixed at 320px so the viewer keeps a usable
+                 main pane on smaller windows. -->
+            <Border Grid.Column="1"
+                    Width="320"
+                    Margin="12,0,0,0"
+                    Background="{StaticResource BrushSurface}"
+                    BorderBrush="{StaticResource BrushBorder}"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Padding="12"
+                    Visibility="{Binding ShowAssignmentPanel, Converter={StaticResource BoolToVisibility}}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <!-- Assigned-reviewer panel -->
+                    <TextBlock Grid.Row="0"
+                               Style="{StaticResource TextStyleSubheading}"
+                               Text="Assigned reviewers"
+                               Margin="0,0,0,8" />
+
+                    <ItemsControl Grid.Row="1"
+                                  ItemsSource="{Binding Assignments}"
+                                  Margin="0,0,0,16">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type detail:AssignedReviewerRow}">
+                                <Grid Margin="0,2,0,2">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <TextBlock Text="{Binding ReviewerDisplayName}"
+                                                   FontWeight="SemiBold" />
+                                        <TextBlock Text="{Binding ReviewerUsername}"
+                                                   FontSize="11"
+                                                   Opacity="0.7" />
+                                    </StackPanel>
+                                    <!-- Status badge. Color discipline:
+                                         Pending = amber, Signed = green,
+                                         Discarded = neutral grey. -->
+                                    <Border Grid.Column="1"
+                                            CornerRadius="10"
+                                            Padding="8,2,8,2"
+                                            VerticalAlignment="Center"
+                                            Background="{StaticResource BrushSurface3}">
+                                        <TextBlock Text="{Binding Status}"
+                                                   Style="{StaticResource TextStyleMonoSmall}" />
+                                    </Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- Comment panel — embedded UserControl with its
+                         own VM. Visibility binds to ShowCommentPanel
+                         (same gate as the assignment panel header but
+                         separate for clarity). DataContext binds to
+                         the parent VM's CommentPanel property. -->
+                    <comments:CommentPanelControl Grid.Row="2"
+                                                  DataContext="{Binding CommentPanel}"
+                                                  Visibility="{Binding DataContext.ShowCommentPanel, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolToVisibility}}" />
+                </Grid>
+            </Border>
+        </Grid>
     </Grid>
 </UserControl>

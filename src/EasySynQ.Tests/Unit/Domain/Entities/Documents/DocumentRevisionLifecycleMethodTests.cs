@@ -128,13 +128,14 @@ public class DocumentRevisionLifecycleMethodTests
         var lockedAt = UtcNow();
         rev.Submit(Guid.NewGuid(), lockedAt);
 
-        rev.ReturnToDraft();
+        rev.ReturnToDraft("needs more detail in section 3");
 
         rev.Lifecycle.Should().Be(DocumentLifecycle.Draft);
         rev.AuthorSignatureId.Should().BeNull();
         // Per SignableEntity contract — LockedAtUtc is one-way and
         // remains stamped even after a return-to-draft.
         rev.LockedAtUtc.Should().Be(lockedAt);
+        rev.LastReturnToDraftReason.Should().Be("needs more detail in section 3");
     }
 
     [Fact]
@@ -142,24 +143,43 @@ public class DocumentRevisionLifecycleMethodTests
     {
         var rev = NewDraftRevision();
 
-        Action act = () => rev.ReturnToDraft();
+        Action act = () => rev.ReturnToDraft("reason");
 
         act.Should().Throw<InvalidOperationException>()
             .WithMessage("*Cannot return revision*");
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ReturnToDraft_NullOrWhitespaceReason_Throws(string? reason)
+    {
+        var rev = NewDraftRevision();
+        rev.Submit(Guid.NewGuid(), UtcNow());
+
+        Action act = () => rev.ReturnToDraft(reason!);
+
+        act.Should().Throw<ArgumentException>();
+    }
+
     [Fact]
-    public void Submit_AfterReturnToDraft_DoesNotResetLockedAtUtc()
+    public void Submit_AfterReturnToDraft_DoesNotResetLockedAtUtcAndClearsReason()
     {
         var rev = NewDraftRevision();
         var firstLock = UtcNow();
         rev.Submit(Guid.NewGuid(), firstLock);
-        rev.ReturnToDraft();
+        rev.ReturnToDraft("first review failed");
+
+        rev.LastReturnToDraftReason.Should().Be("first review failed");
 
         var laterLock = UtcNow(120);
         rev.Submit(Guid.NewGuid(), laterLock);
 
         rev.LockedAtUtc.Should().Be(firstLock);
+        // Re-submission clears the live LastReturnToDraftReason —
+        // the prior reason survives in the audit log only.
+        rev.LastReturnToDraftReason.Should().BeNull();
     }
 
     // ─── Approve ────────────────────────────────────────────────────

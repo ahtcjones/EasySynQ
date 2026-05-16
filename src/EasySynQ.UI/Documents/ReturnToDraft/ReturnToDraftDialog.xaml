@@ -1,0 +1,118 @@
+<Window x:Class="EasySynQ.UI.Documents.ReturnToDraft.ReturnToDraftDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:rtd="clr-namespace:EasySynQ.UI.Documents.ReturnToDraft"
+        mc:Ignorable="d"
+        Title="EasySynQ — Return to draft"
+        Width="440"
+        Height="340"
+        ResizeMode="NoResize"
+        SizeToContent="Manual"
+        WindowStyle="SingleBorderWindow"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        d:DataContext="{d:DesignInstance Type=rtd:ReturnToDraftViewModel, IsDesignTimeCreatable=False}">
+
+    <!--
+        ADR 0008 C6b stop 5 — Return-to-Draft modal. Required-
+        reason textarea + Return / Cancel. Not a signed transition
+        (per the stop-5 plan-vs-service reconciliation): no role
+        prompter, no Signature Insert. Audit-row count is 1 + N
+        (revision Update + N assignment Updates). The reason is
+        stamped on revision.LastReturnToDraftReason and surfaces
+        in the audit log's revision-Update row's After snapshot.
+    -->
+    <Grid>
+        <Border Background="{StaticResource BrushSurface}"
+                BorderBrush="{StaticResource BrushBorder}"
+                BorderThickness="1"
+                CornerRadius="12"
+                Width="380"
+                Padding="24"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Title -->
+                <TextBlock Grid.Row="0"
+                           Style="{StaticResource TextStyleHeading}"
+                           Text="Return to draft"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,4" />
+
+                <!-- Subtitle -->
+                <TextBlock Grid.Row="1"
+                           Style="{StaticResource TextStyleCaption}"
+                           Text="Reason is required. In-progress reviewer signatures will be discarded; the author will see your reason."
+                           HorizontalAlignment="Center"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,16" />
+
+                <!-- Reason label -->
+                <TextBlock Grid.Row="2"
+                           Style="{StaticResource TextStyleLabel}"
+                           Text="Reason"
+                           Margin="0,0,0,4" />
+
+                <!-- Reason textarea -->
+                <TextBox Grid.Row="3"
+                         x:Name="ReasonTextBox"
+                         Text="{Binding Reason, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                         AcceptsReturn="True"
+                         TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         MinHeight="80"
+                         Margin="0,0,0,12"
+                         AutomationProperties.Name="Return-to-draft reason" />
+
+                <!-- Error row (red surface, hidden until something fails) -->
+                <Border Grid.Row="4"
+                        Background="{StaticResource BrushRedBg}"
+                        BorderBrush="{StaticResource BrushRed}"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="8,6"
+                        Margin="0,0,0,12"
+                        Visibility="{Binding ErrorMessage, Converter={StaticResource NullOrEmptyToVisibility}}">
+                    <TextBlock Text="{Binding ErrorMessage}"
+                               Foreground="{StaticResource BrushRed}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Return error message" />
+                </Border>
+
+                <!-- Action row: Cancel + Return -->
+                <StackPanel Grid.Row="5"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                    <Button x:Name="CancelButton"
+                            Content="Cancel"
+                            Command="{Binding CancelCommand}"
+                            IsCancel="True"
+                            Width="88"
+                            Height="32"
+                            Margin="0,0,8,0"
+                            AutomationProperties.Name="Cancel" />
+                    <Button x:Name="ReturnButton"
+                            Style="{StaticResource ButtonPrimary}"
+                            Content="Return to draft"
+                            Command="{Binding ReturnCommand}"
+                            IsDefault="True"
+                            Width="120"
+                            Height="32"
+                            AutomationProperties.Name="Return to draft" />
+                </StackPanel>
+
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

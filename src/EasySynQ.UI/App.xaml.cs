@@ -19,6 +19,9 @@ using EasySynQ.UI.Documents;
 using EasySynQ.UI.Documents.CreateDocument;
 using EasySynQ.UI.Documents.Detail;
 using EasySynQ.UI.Documents.EditMetadata;
+using EasySynQ.UI.Documents.ReturnToDraft;
+using EasySynQ.UI.Documents.ReviewAndSign;
+using EasySynQ.UI.Documents.SubmitForReview;
 using EasySynQ.UI.Documents.List;
 using EasySynQ.UI.Identity;
 using EasySynQ.UI.Login;
@@ -323,6 +326,21 @@ public partial class App : Application
         // nullable record returns.
         services.AddSingleton<ICreateDocumentPrompter, CreateDocumentPrompter>();
         services.AddSingleton<IEditMetadataPrompter, EditMetadataPrompter>();
+        // C6b — submit-for-review prompter. Singleton like the rest;
+        // the dialog VM is heavy (loads candidates + invokes
+        // role-prompter + calls lifecycle service internally) per
+        // plan §C.
+        services.AddSingleton<ISubmitForReviewPrompter, SubmitForReviewPrompter>();
+        // C6b — review-and-sign prompter. Same shape as
+        // SubmitForReview; resolves role on Loaded, signs on
+        // command, surfaces post-sign state.
+        services.AddSingleton<IReviewAndSignPrompter, ReviewAndSignPrompter>();
+        // C6b — return-to-draft prompter. Lightest of the three:
+        // no role prompter (per the stop-5 plan-vs-service
+        // reconciliation, ReturnToDraft is not a signed transition);
+        // dialog captures the required reason and forwards to the
+        // lifecycle service.
+        services.AddSingleton<IReturnToDraftPrompter, ReturnToDraftPrompter>();
 
         // List view model — transient so navigating to the documents
         // entry produces a fresh VM each time (the factory is

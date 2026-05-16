@@ -31,6 +31,15 @@ internal sealed class DocumentRevisionConfiguration : IEntityTypeConfiguration<D
         builder.Property(r => r.AuthorUserId).IsRequired();
         builder.Property(r => r.AuthorSignatureId);
 
+        // LastReturnToDraftReason (ADR 0008 C6b): nullable free-form
+        // text on the revision row. Captured in the revision-Update
+        // audit row's After snapshot when ReturnToDraft fires; the
+        // 1+N audit-row formula is unchanged because the reason
+        // travels on the same revision-Update row, not a separate
+        // entity Insert. No length cap at the DB level (TEXT on
+        // SQLite); the dialog enforces any soft cap for display.
+        builder.Property(r => r.LastReturnToDraftReason);
+
         // LockedAtUtc from SignableEntity. Configured inline because
         // DocumentRevision is C1's only SignableEntity-derived entity;
         // when more SignableEntities arrive (Job, NCR, etc.), promote

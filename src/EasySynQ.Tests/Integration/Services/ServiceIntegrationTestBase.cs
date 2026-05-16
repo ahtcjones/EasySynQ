@@ -244,6 +244,7 @@ public abstract class ServiceIntegrationTestBase : IDisposable
         services.AddScoped<IDocumentRepository, DocumentRepository>();
         services.AddScoped<IDocumentRevisionRepository, DocumentRevisionRepository>();
         services.AddScoped<IDocumentReviewAssignmentRepository, DocumentReviewAssignmentRepository>();
+        services.AddScoped<IDocumentReviewCommentRepository, DocumentReviewCommentRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         ServiceProvider = services.BuildServiceProvider();

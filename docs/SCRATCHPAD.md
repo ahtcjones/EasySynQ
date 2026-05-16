@@ -55,6 +55,299 @@ the Revision history (when that surface lands).
 
 ---
 
+## Detail view loses affordances on document switch (deferred from C6b stop 9)
+
+- **Surfaced by:** Phase 2 C6b stop 9 (2026-05-16). After clicking
+  one document then clicking a second, the second document's
+  affordance row appears empty/stale. Workaround: navigate to
+  another module then back into Documents, which forces a full
+  rebuild of the list+detail panes.
+- **Suspected family:** C6a lesson #2 (event-handler subscription
+  discipline) — stop 7 added new state (`Assignments`,
+  `CommentPanel`, `_assignmentReviewers`) plus three new commands
+  to the `DocumentDetailViewModel`. The list VM's
+  `DetailViewModel` getter calls `ClearDetailViewModel` then
+  constructs a fresh VM via `_detailFactory`. WPF's
+  `ContentControl + DataTemplate` should tear down the existing
+  view and instantiate a new one (whose `Loaded` event fires
+  `LoadCommand`).
+- **What's known to be correct:**
+  - 50/50 unit tests for `DocumentDetailViewModel` pass including
+    the C6b additions; VM-side logic is verified.
+  - `CurrentRevision`'s `[NotifyPropertyChangedFor]` includes all
+    seven C6b properties + the four `Can*` derived flags so
+    PropertyChanged fires correctly when `LoadAsync` updates it.
+  - `LoadAsync` clears `Assignments` to `Array.Empty<>` and
+    `CommentPanel` to `null` when the new revision is not in
+    InReview (no stale-state leak through the property path).
+- **Zones to investigate first when picking this up:**
+  1. WebView2's WPF lifecycle. PdfViewerControl embeds WebView2;
+     historical issues exist around ContentControl rebuild +
+     WebView2 dispose timing. May be blocking the new view's
+     `Loaded` event from firing on the second selection.
+  2. `OnLoadedAsync` in `DocumentDetailView.xaml.cs` checks
+     `DataContext is DocumentDetailViewModel vm` — if DataContext
+     hasn't been set yet when Loaded fires, `LoadCommand` isn't
+     dispatched. Add a `DataContextChanged` handler as a fallback
+     trigger.
+  3. The `ActivatorUtilities.CreateInstance` factory resolves
+     scoped services from the singleton root provider (existing
+     C6a quirk). If any of the new C6b dependencies hold per-
+     instance state that conflicts across detail VMs, that's a
+     candidate.
+- **Why it's deferred:** diagnosis requires running the WPF app
+  and stepping through the rebinding lifecycle; the unit-test
+  layer can't easily reproduce. The workaround is mild (one
+  extra click). Punt to a follow-up commit named something
+  like "fix(ui): detail-view affordance refresh on selection
+  switch (C6b follow-up)".
+
+---
+
+## ADR 0009 role-resolution vs direct UserPermission grants (deferred from C6b stop 9)
+
+- **Surfaced by:** Phase 2 C6b stop 9 (2026-05-16). Smoke walk
+  Step 1 surfaced the gap cleanly via `SignatureRolePrompter`'s
+  defensive `InvalidOperationException("the current user holds
+  no role that grants this permission")`. The throw catches the
+  case correctly — it just blocked the smoke walk.
+- **Architectural shape:** ADR 0009's `IRoleResolutionService.
+  GetEligibleRolesForPermission(permissionName)` filters the
+  current user's `ICurrentUserAccessor.RolePermissions` snapshot
+  (a per-role permission map). Permissions granted only via
+  direct `UserPermission` rows (ADR 0007 §"per-user permission
+  grants") never appear in any role bucket, so the prompter
+  finds zero eligible roles and throws. The user effectively
+  holds the permission (auth-check passes) but the prompter
+  doesn't know which role-string to stamp on the signature.
+- **Short-term mitigation (C6b stop 9 smoke):** the
+  `grant-document-permissions.ps1` script grants the smoke
+  author the seeded QualityManager role via a `UserRole` row.
+  QualityManager grants most Document.* perms. The direct
+  UserPermission grants for the same perms remain harmless
+  redundancy (effective-permission set is a union); the
+  prompter now sees QualityManager as an eligible role and
+  auto-picks for single-role users.
+- **Long-term fix:** an ADR 0009 amendment documenting how
+  signing should be handled when the user's only path to a
+  permission is a direct UserPermission grant. Candidate
+  approaches:
+  1. **Synthesize a "DirectGrant" role string** when no real
+     role applies. Simple but creates an audit-log oddity (the
+     `Signature.RoleAtTimeOfSign` value points to a string
+     that's not a real role).
+  2. **Require every signable permission to be in at least one
+     role** in the deployment, validated at bootstrap or admin-
+     UI grant time. Conservative — closes the gap by
+     construction rather than handling it.
+  3. **Drop the role-snapshot filter** and use the flat
+     `Permissions` collection instead, picking the user's
+     "default" role (e.g., their first role alphabetically) as
+     the `RoleAtTimeOfSign`. Loose; loses the per-role-
+     attribution semantics ADR 0009 was designed around.
+  Chooser of the long-term fix should also revisit ADR 0007
+  §"Alternatives Considered" — the direct-grant deployment
+  shape was already flagged as a corner case there.
+
+---
+
+## Smoke-script grants paper over a seed-shape gap (lesson pinned C6b stop 9)
+
+- **Surfaced by:** Phase 2 C6a + C6b smoke walks (2026-05-15
+  through 2026-05-16). Each phase's smoke walk has added
+  `UserPermission` direct grants and (at C6b) a `UserRole`
+  membership to the smoke users so the C6a/C6b affordances
+  render. Treated initially as "scripts grow per-phase"; the
+  deployment-model clarification at stop 9 reframes it: these
+  grants are smoke pragmatism papering over a real
+  seed-shape gap, not legitimate ongoing maintenance.
+- **Deployment-model intent (user clarification, 2026-05-16):**
+  Administrator is the **IT-side seat**, not a QMS operator;
+  it administers users/roles/permissions but does not author,
+  submit, review, or sign documents. The **small-shop default**
+  is "users who can author drafts can inherently submit
+  them" — author-can-submit, where `Document.SubmitForReview`
+  and `Document.AssignReviewers` both reach authors via their
+  operational role. Strict-gatekeeper deployments (only QM
+  submits / only QM assigns) are the configurable exception,
+  not the default.
+- **What the seed actually does:** `PermissionNames.All`
+  (consumed by `BootstrapService.CreateAdministratorAsync`)
+  is system-only — Administrator gets no Document permissions
+  at bootstrap. The migration-seeded `QualityManager` role
+  holds most Document permissions but **explicitly omits**
+  `Document.AssignReviewers` (per ADR 0008 §"Authorization");
+  neither QM nor any other seeded role grants it. So on a
+  fresh-bootstrap install:
+  - No user holds `Document.AssignReviewers` at all.
+  - The author-can-submit small-shop default is **not** the
+    default — it requires an explicit admin-UI grant that
+    doesn't exist yet.
+  - Smoke walks that exercise submit-for-review can't run
+    without scripted direct grants.
+- **Four instances of the script-grants-paper-over-seed-gap
+  pattern catalogued so far:**
+  1. **C6a (Document.HardDelete to admin):** script grants
+     admin `Document.HardDelete` directly so the Draft
+     hard-delete affordance renders. Smoke pragmatism — admin
+     isn't operationally hard-deleting Drafts in production.
+  2. **C6b (four-permission grant to admin):** script grants
+     admin `Document.SubmitForReview`, `Document.AssignReviewers`,
+     `Document.ReturnForEdits`, `Document.Review` directly. Same
+     smoke pragmatism — admin isn't a reviewer or a submitter.
+  3. **C6b (admin → QualityManager UserRole membership):**
+     script writes a `UserRole` linking admin to QualityManager
+     so the role-prompter (ADR 0009) finds an eligible role
+     for admin's submit-for-review signature. Without it, the
+     prompter throws the defensive "no role grants this
+     permission" exception even though admin has the direct
+     grants. Again, smoke pragmatism — admin isn't a member of
+     QualityManager in production.
+  4. **C6b (multireviewer Document.AssignReviewers direct
+     grant):** script grants multireviewer `AssignReviewers`
+     directly. Multireviewer IS an operational user (in
+     QualityManager), so this is the closest of the four to
+     a legitimate production grant — but it works around the
+     fact that the seed doesn't include AssignReviewers in
+     any operational role. In a production small-shop install
+     this grant would have to come from the admin UI per
+     ADR 0008's "organizations grant separately" framing.
+- **List-view vs detail-view permission-check parity
+  property** (testable invariant for the follow-up fix): a
+  user signed in via the production sign-in flow should have
+  the same effective-permission view in both the list and
+  detail VMs. Step 2 surfaced an asymmetry — multireviewer's
+  `Document.Create` check worked in the list (Doc B was
+  created successfully) but the same user's
+  `Document.EditDraft` / `Document.HardDelete` checks
+  appeared to fail in the detail view. If the architectural
+  follow-up correctly seeds the operational roles, this
+  asymmetry would still surface any latent VM-side bug
+  (independent of the seed shape).
+- **Architectural follow-up (NOT in C6b — focused commit or
+  ADR amendment):** reconcile the seed-shape gap so the
+  deployment-model intent is the out-of-the-box default.
+  Three candidate paths to surface in the follow-up's
+  planning conversation:
+  - **(a) Amend QualityManager seed to include
+    `Document.AssignReviewers`** — small-shop default:
+    anyone in QualityManager (which is most operational
+    users) can submit. Strict-gatekeeper deployments revoke
+    AssignReviewers from QualityManager and grant it to a
+    dedicated role.
+  - **(b) Reconsider ADR 0008's rejection of a seeded
+    Author role** — given the deployment-model clarification
+    that author-can-submit is the intended default, a
+    seeded Author role with Create + EditDraft +
+    SubmitForReview + AssignReviewers may be the right
+    shape. QualityManager keeps the review-side permissions.
+  - **(c) Hybrid** — keep strict-gatekeeper deployment as
+    a configurable option (e.g., a bootstrap-time
+    `--strict-gatekeeper` flag) while making the small-shop
+    default work out-of-the-box.
+  Each option has trade-offs worth working through in a
+  focused planning conversation, not under smoke-walk time
+  pressure.
+- **Follow-up commit's cleanup task:** when the seed is
+  reconciled, audit `scripts/grant-document-permissions.ps1`
+  and remove the four pattern instances above. The script
+  should retain only the
+  multireviewer/secondreviewer/ReviewerSecondary mint logic
+  (which is genuine test-data, not a seed-gap workaround) +
+  a thin verification helper that prints the smoke author's
+  effective-permission set for pre-flight assertions.
+
+---
+
+## Assignment panel role display (deferred from C6b stop 7)
+
+- **Surfaced by:** Phase 2 C6b stop 9 (2026-05-16). The stop-7
+  assigned-reviewer panel renders
+  `(ReviewerDisplayName, ReviewerUsername, Status)` but not the
+  `RoleAtTimeOfSign` snapshot captured on the reviewer's
+  `Signature` row.
+- **Why it matters:** for a Signed assignment, the role the
+  reviewer signed under (`Signature.RoleAtTimeOfSign`) is the
+  authoritative audit-trail field. Surfacing it next to the
+  status badge gives a clearer "who signed under which capacity"
+  view, especially for multi-role users.
+- **What to add when picked up:**
+  1. Extend `AssignedReviewerRow` with a nullable
+     `RoleAtTimeOfSign` field (null for Pending/Discarded).
+  2. In `DocumentDetailViewModel.LoadAsync`, when projecting
+     assignments, look up each Signed assignment's
+     `SignatureId → Signature.RoleAtTimeOfSign` (one batch query
+     via a `GetByIdsAsync` on `ISignatureRepository` or similar).
+  3. Bind the field in `DocumentDetailView.xaml`'s assignment
+     `ItemTemplate` — e.g., "signed as {RoleAtTimeOfSign}" caption
+     line under the status badge.
+- **Smoke walk impact:** not a blocker. The walk verifies the
+  Signature row exists with the correct `RoleAtTimeOfSign` via
+  raw SQL inspection; the UI's omission is cosmetic for now.
+
+---
+
+## Author-as-self-reviewer policy (deferred from C6b stop 9)
+
+- **Surfaced by:** Phase 2 C6b stop 9 (2026-05-16). Plan §1 and §C
+  both claim "self-assignment allowed" on the submit-for-review
+  reviewer picker; the C3 service implementation
+  (`DocumentLifecycleService.SubmitForReviewAsync`) rejects it with
+  `ArgumentException("Author cannot review their own document.")`.
+- **Provenance:** C3 commit `0ae4317` message and inline comment at
+  `DocumentLifecycleService.cs:144-146` ("Author may sign as a
+  reviewer in real workflows, but we forbid the author appearing
+  in their OWN reviewer list per Q5") confirm this was a
+  deliberate planning-time decision, not defensive coding. ADR
+  0008 is silent — Q5 was a conversation-level architectural
+  choice that never got elevated.
+- **Decision (C6b stop 9):** the C3 guard wins for now; C6b plan
+  §1/§C wording is treated as a misnomer. The smoke walk runs
+  with a `secondreviewer` test user instead of admin
+  self-assigning. The C6b commit message will flag the plan-vs-
+  service reconciliation explicitly.
+- **What to do when picked up:**
+  1. If the override is the right call, write an ADR titled
+     something like "0011-author-as-self-reviewer-policy" arguing
+     the case (e.g., "the submit signature attests to readiness;
+     a separate review signature attests to validation under a
+     potentially distinct role"). Then remove the C3 guard, the
+     unit test that exercises it, and amend ADR 0008 to reference
+     the new ADR.
+  2. If the C3 guard is correct, amend the C6b plan §1 and §C
+     wording on a future planning-doc pass (the plan is a
+     working document, not an authoritative artifact, so the
+     amendment is bookkeeping).
+- **Other filter sites are absent** — the reviewer-picker query,
+  the picker VM, and the SubmitForReview VM all let the author
+  appear in candidates. Service-layer rejection is the only
+  enforcement. If option 1 above is chosen, those layers don't
+  need changes.
+
+---
+
+## Submit-for-review notes field (deferred from C6b stop 3)
+
+- **Surfaced by:** Phase 2 C6b stop 3 (2026-05-16). Plan §C lists an
+  "optional submit-notes field" in the dialog markup, but the
+  underlying `IDocumentLifecycleService.SubmitForReviewAsync` has no
+  notes parameter and the plan's audit-row table keeps Submit at
+  `2 + N` (no comment Insert folded in).
+- **Decision:** omit the notes field from stop 3. Reviewing author
+  + user agreed shipping the textbox as dead UI would mislead users
+  (typed notes silently discarded).
+- **What to add when picked up:**
+  1. Either extend `SubmitForReviewAsync` with a `string? submitNotes`
+     parameter that, when non-null/non-whitespace, writes a
+     `DocumentReviewComment` in the same transaction (audit count
+     becomes `2 + N + 1 = 3 + N` when notes present); or
+  2. Add a dedicated field on `DocumentRevision` analogous to
+     `LastReturnToDraftReason` (stop 1), captured on submit.
+- **Plan implication:** the C6b plan's "Audit-row formulas" table
+  needs an amendment if option 1 is chosen.
+
+---
+
 ## Reminders for next phase's smoke-procedure writing
 
 These are procedural lessons (not numbered handoff lessons) — process

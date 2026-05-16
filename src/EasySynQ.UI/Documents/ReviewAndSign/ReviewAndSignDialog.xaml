@@ -1,0 +1,111 @@
+<Window x:Class="EasySynQ.UI.Documents.ReviewAndSign.ReviewAndSignDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:ras="clr-namespace:EasySynQ.UI.Documents.ReviewAndSign"
+        mc:Ignorable="d"
+        Title="EasySynQ — Sign as reviewer"
+        Width="420"
+        Height="280"
+        ResizeMode="NoResize"
+        SizeToContent="Manual"
+        WindowStyle="SingleBorderWindow"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Loaded="OnLoadedAsync"
+        d:DataContext="{d:DesignInstance Type=ras:ReviewAndSignViewModel, IsDesignTimeCreatable=False}">
+
+    <!--
+        ADR 0008 C6b stop 4 — Review-and-Sign confirmation modal.
+        Single card centered in the window. Loaded event triggers
+        the role-prompter (single-role users auto-resolve;
+        multi-role users see the picker on top); on role-resolution,
+        the confirmation surface renders with the resolved role
+        baked into the message.
+    -->
+    <Grid>
+        <Border Background="{StaticResource BrushSurface}"
+                BorderBrush="{StaticResource BrushBorder}"
+                BorderThickness="1"
+                CornerRadius="12"
+                Width="360"
+                Padding="24"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <!-- Title -->
+                <TextBlock Grid.Row="0"
+                           Style="{StaticResource TextStyleHeading}"
+                           Text="Sign as reviewer"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,12" />
+
+                <!-- Resolving-role indicator -->
+                <TextBlock Grid.Row="1"
+                           Text="Resolving signing role…"
+                           Style="{StaticResource TextStyleCaption}"
+                           Foreground="{StaticResource BrushTextDim}"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,8"
+                           Visibility="{Binding IsResolvingRole, Converter={StaticResource BoolToVisibility}}" />
+
+                <!-- Confirmation message (rendered once role is resolved) -->
+                <TextBlock Grid.Row="2"
+                           Text="{Binding ConfirmationMessage}"
+                           TextWrapping="Wrap"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,16"
+                           Visibility="{Binding ConfirmationMessage, Converter={StaticResource NullOrEmptyToVisibility}}"
+                           AutomationProperties.Name="Sign confirmation message" />
+
+                <!-- Error row (red surface, hidden until something fails) -->
+                <Border Grid.Row="3"
+                        Background="{StaticResource BrushRedBg}"
+                        BorderBrush="{StaticResource BrushRed}"
+                        BorderThickness="1"
+                        CornerRadius="6"
+                        Padding="8,6"
+                        Margin="0,0,0,12"
+                        Visibility="{Binding ErrorMessage, Converter={StaticResource NullOrEmptyToVisibility}}">
+                    <TextBlock Text="{Binding ErrorMessage}"
+                               Foreground="{StaticResource BrushRed}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.Name="Sign error message" />
+                </Border>
+
+                <!-- Action row: Cancel + Sign -->
+                <StackPanel Grid.Row="5"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                    <Button x:Name="CancelButton"
+                            Content="Cancel"
+                            Command="{Binding CancelCommand}"
+                            IsCancel="True"
+                            Width="88"
+                            Height="32"
+                            Margin="0,0,8,0"
+                            AutomationProperties.Name="Cancel" />
+                    <Button x:Name="SignButton"
+                            Style="{StaticResource ButtonPrimary}"
+                            Content="Sign"
+                            Command="{Binding SignCommand}"
+                            IsDefault="True"
+                            Width="88"
+                            Height="32"
+                            AutomationProperties.Name="Sign as reviewer" />
+                </StackPanel>
+
+            </Grid>
+        </Border>
+    </Grid>
+</Window>

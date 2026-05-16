@@ -83,6 +83,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDocumentRepository, DocumentRepository>();
         services.AddScoped<IDocumentRevisionRepository, DocumentRevisionRepository>();
         services.AddScoped<IDocumentReviewAssignmentRepository, DocumentReviewAssignmentRepository>();
+        services.AddScoped<IDocumentReviewCommentRepository, DocumentReviewCommentRepository>();
 
         // Unit of work for explicit cross-save transactions.
         services.AddScoped<IUnitOfWork, UnitOfWork>();

@@ -1,0 +1,114 @@
+<UserControl x:Class="EasySynQ.UI.Documents.Comments.CommentPanelControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:comments="clr-namespace:EasySynQ.UI.Documents.Comments"
+             mc:Ignorable="d"
+             d:DesignHeight="320"
+             d:DesignWidth="360"
+             Loaded="OnLoadedAsync"
+             d:DataContext="{d:DesignInstance Type=comments:CommentPanelViewModel, IsDesignTimeCreatable=False}">
+
+    <!--
+        ADR 0008 C6b stop 6 — reviewer-comment panel. Embedded by
+        DocumentDetailView when Lifecycle == InReview. Thread reads
+        oldest-first; Add affordance below is gated by Document.Review
+        permission and non-whitespace text.
+    -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <TextBlock Grid.Row="0"
+                   Style="{StaticResource TextStyleSubheading}"
+                   Text="Reviewer comments"
+                   Margin="0,0,0,8" />
+
+        <!-- Loading indicator -->
+        <TextBlock Grid.Row="1"
+                   Text="Loading…"
+                   Style="{StaticResource TextStyleCaption}"
+                   Foreground="{StaticResource BrushTextDim}"
+                   Margin="0,0,0,8"
+                   Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}" />
+
+        <!-- Comment thread -->
+        <ScrollViewer Grid.Row="2"
+                      VerticalScrollBarVisibility="Auto"
+                      BorderBrush="{StaticResource BrushBorder}"
+                      BorderThickness="1"
+                      Padding="6"
+                      Margin="0,0,0,12">
+            <ItemsControl ItemsSource="{Binding Comments}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type comments:CommentRow}">
+                        <Border BorderBrush="{StaticResource BrushBorder}"
+                                BorderThickness="0,0,0,1"
+                                Padding="4,6">
+                            <StackPanel Orientation="Vertical">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                                    <TextBlock Text="{Binding AuthorDisplayName}"
+                                               FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding CreatedAtUtc, StringFormat='  •  {0:yyyy-MM-dd HH:mm} UTC'}"
+                                               Style="{StaticResource TextStyleCaption}"
+                                               Foreground="{StaticResource BrushTextDim}"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock Text="{Binding BodyText}"
+                                           TextWrapping="Wrap"
+                                           AutomationProperties.Name="Comment body" />
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </ScrollViewer>
+
+        <!-- Error row (hidden until something fails) -->
+        <Border Grid.Row="3"
+                Background="{StaticResource BrushRedBg}"
+                BorderBrush="{StaticResource BrushRed}"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="8,6"
+                Margin="0,0,0,8"
+                Visibility="{Binding ErrorMessage, Converter={StaticResource NullOrEmptyToVisibility}}">
+            <TextBlock Text="{Binding ErrorMessage}"
+                       Foreground="{StaticResource BrushRed}"
+                       TextWrapping="Wrap"
+                       AutomationProperties.Name="Comment panel error message" />
+        </Border>
+
+        <!-- Add textarea -->
+        <TextBox Grid.Row="4"
+                 x:Name="NewCommentTextBox"
+                 Text="{Binding NewCommentText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                 AcceptsReturn="True"
+                 TextWrapping="Wrap"
+                 MinHeight="50"
+                 VerticalScrollBarVisibility="Auto"
+                 Margin="0,0,0,8"
+                 IsEnabled="{Binding CanComment}"
+                 AutomationProperties.Name="New comment text" />
+
+        <!-- Add button -->
+        <Button Grid.Row="5"
+                Style="{StaticResource ButtonPrimary}"
+                Content="Add comment"
+                Command="{Binding AddCommand}"
+                HorizontalAlignment="Right"
+                Width="120"
+                Height="32"
+                Visibility="{Binding CanComment, Converter={StaticResource BoolToVisibility}}"
+                AutomationProperties.Name="Add comment" />
+
+    </Grid>
+</UserControl>

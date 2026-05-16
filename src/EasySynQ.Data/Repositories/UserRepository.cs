@@ -54,4 +54,82 @@ public class UserRepository : Repository<User, Guid>, IUserRepository
             .Where(u => distinct.Contains(u.Id))
             .ToListAsync(cancellationToken);
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<User>> GetUsersWithPermissionAsync(
+        string permissionName,
+        DateTime asOfUtc,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(permissionName);
+
+        if (asOfUtc.Kind != DateTimeKind.Utc)
+        {
+            throw new ArgumentException(
+                "asOfUtc must have DateTimeKind.Utc.",
+                nameof(asOfUtc));
+        }
+
+        // Inverse of PermissionRepository.GetEffectivePermissionNamesForUserAsync:
+        // start from the named Permission, project up through the two
+        // link tables (each filtered by EffectivePeriod at asOfUtc),
+        // union the candidate userIds. Two-round-trip shape rather
+        // than a single composed query because EF Core 10's
+        // IgnoreQueryFilters propagates across composed subqueries —
+        // if we built the candidate set as a subquery of
+        // Query().Where(Contains(...)), the outer User table's
+        // soft-delete filter would be lifted alongside the link-
+        // tables' filters. Materializing the candidates first keeps
+        // the User-side soft-delete filter intact.
+        //
+        // IgnoreQueryFilters lifts the DbContext's as-of filter
+        // (per ADR 0005, that filter reads the temporal resolver, not
+        // the caller-supplied asOfUtc); soft-delete predicates are
+        // re-applied explicitly on UserRole, RolePermission,
+        // UserPermission, and Permission. Users themselves go through
+        // Query() at the end so the standard soft-delete filter
+        // remains in effect for them — soft-deleted users never
+        // surface to a reviewer picker.
+
+        var roleBranchUserIds =
+            from ur in Context.UserRoles.IgnoreQueryFilters()
+            where !ur.IsDeleted
+               && ur.EffectivePeriod.EffectiveFromUtc <= asOfUtc
+               && (ur.EffectivePeriod.EffectiveToUtc == null
+                   || asOfUtc < ur.EffectivePeriod.EffectiveToUtc)
+            join rp in Context.RolePermissions.IgnoreQueryFilters()
+                on ur.RoleId equals rp.RoleId
+            where !rp.IsDeleted
+               && rp.EffectivePeriod.EffectiveFromUtc <= asOfUtc
+               && (rp.EffectivePeriod.EffectiveToUtc == null
+                   || asOfUtc < rp.EffectivePeriod.EffectiveToUtc)
+            join p in Context.Permissions.IgnoreQueryFilters()
+                on rp.PermissionId equals p.Id
+            where !p.IsDeleted && p.Name == permissionName
+            select ur.UserId;
+
+        var directBranchUserIds =
+            from up in Context.UserPermissions.IgnoreQueryFilters()
+            where !up.IsDeleted
+               && up.EffectivePeriod.EffectiveFromUtc <= asOfUtc
+               && (up.EffectivePeriod.EffectiveToUtc == null
+                   || asOfUtc < up.EffectivePeriod.EffectiveToUtc)
+            join p in Context.Permissions.IgnoreQueryFilters()
+                on up.PermissionId equals p.Id
+            where !p.IsDeleted && p.Name == permissionName
+            select up.UserId;
+
+        var candidateUserIds = await roleBranchUserIds
+            .Union(directBranchUserIds)
+            .ToListAsync(cancellationToken);
+
+        if (candidateUserIds.Count == 0)
+        {
+            return [];
+        }
+
+        return await Query()
+            .Where(u => candidateUserIds.Contains(u.Id))
+            .ToListAsync(cancellationToken);
+    }
 }

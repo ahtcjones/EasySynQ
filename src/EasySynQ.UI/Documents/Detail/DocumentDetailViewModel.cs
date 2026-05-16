@@ -10,8 +10,12 @@ using EasySynQ.Services.Abstractions;
 using EasySynQ.Services.Documents;
 using EasySynQ.Services.Time;
 using EasySynQ.Services.Vault;
+using EasySynQ.UI.Documents.Comments;
 using EasySynQ.UI.Documents.Controls;
 using EasySynQ.UI.Documents.EditMetadata;
+using EasySynQ.UI.Documents.ReturnToDraft;
+using EasySynQ.UI.Documents.ReviewAndSign;
+using EasySynQ.UI.Documents.SubmitForReview;
 using EasySynQ.UI.Navigation;
 
 namespace EasySynQ.UI.Documents.Detail;
@@ -45,6 +49,9 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
 {
     private readonly IDocumentRepository _documents;
     private readonly IDocumentRevisionRepository _revisions;
+    private readonly IDocumentReviewAssignmentRepository _assignments;
+    private readonly IDocumentReviewCommentRepository _comments;
+    private readonly IUserRepository _users;
     private readonly IVaultService _vault;
     private readonly IVaultPathProvider _pathProvider;
     private readonly IClock _clock;
@@ -52,6 +59,9 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
     private readonly IDocumentLifecycleService _lifecycle;
     private readonly IFilePicker _filePicker;
     private readonly IEditMetadataPrompter _editPrompter;
+    private readonly ISubmitForReviewPrompter _submitPrompter;
+    private readonly IReviewAndSignPrompter _signPrompter;
+    private readonly IReturnToDraftPrompter _returnPrompter;
 
     /// <summary>
     /// Constructs the view model bound to a specific <see cref="Document"/>.
@@ -65,17 +75,26 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
         Document document,
         IDocumentRepository documents,
         IDocumentRevisionRepository revisions,
+        IDocumentReviewAssignmentRepository assignments,
+        IDocumentReviewCommentRepository comments,
+        IUserRepository users,
         IVaultService vault,
         IVaultPathProvider pathProvider,
         IClock clock,
         ICurrentUserAccessor currentUser,
         IDocumentLifecycleService lifecycle,
         IFilePicker filePicker,
-        IEditMetadataPrompter editPrompter)
+        IEditMetadataPrompter editPrompter,
+        ISubmitForReviewPrompter submitPrompter,
+        IReviewAndSignPrompter signPrompter,
+        IReturnToDraftPrompter returnPrompter)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(documents);
         ArgumentNullException.ThrowIfNull(revisions);
+        ArgumentNullException.ThrowIfNull(assignments);
+        ArgumentNullException.ThrowIfNull(comments);
+        ArgumentNullException.ThrowIfNull(users);
         ArgumentNullException.ThrowIfNull(vault);
         ArgumentNullException.ThrowIfNull(pathProvider);
         ArgumentNullException.ThrowIfNull(clock);
@@ -83,10 +102,16 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
         ArgumentNullException.ThrowIfNull(lifecycle);
         ArgumentNullException.ThrowIfNull(filePicker);
         ArgumentNullException.ThrowIfNull(editPrompter);
+        ArgumentNullException.ThrowIfNull(submitPrompter);
+        ArgumentNullException.ThrowIfNull(signPrompter);
+        ArgumentNullException.ThrowIfNull(returnPrompter);
 
         Document = document;
         _documents = documents;
         _revisions = revisions;
+        _assignments = assignments;
+        _comments = comments;
+        _users = users;
         _vault = vault;
         _pathProvider = pathProvider;
         _clock = clock;
@@ -94,6 +119,9 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
         _lifecycle = lifecycle;
         _filePicker = filePicker;
         _editPrompter = editPrompter;
+        _submitPrompter = submitPrompter;
+        _signPrompter = signPrompter;
+        _returnPrompter = returnPrompter;
     }
 
     /// <summary>The Document this detail view is bound to.</summary>
@@ -112,10 +140,44 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
     [NotifyPropertyChangedFor(nameof(CanEditMetadata))]
     [NotifyPropertyChangedFor(nameof(CanReplacePdf))]
     [NotifyPropertyChangedFor(nameof(CanHardDelete))]
+    [NotifyPropertyChangedFor(nameof(CanSubmitForReview))]
+    [NotifyPropertyChangedFor(nameof(CanReviewAndSign))]
+    [NotifyPropertyChangedFor(nameof(CanReturnToDraft))]
+    [NotifyPropertyChangedFor(nameof(ShowAssignmentPanel))]
+    [NotifyPropertyChangedFor(nameof(ShowCommentPanel))]
+    [NotifyPropertyChangedFor(nameof(LastReturnToDraftReason))]
+    [NotifyPropertyChangedFor(nameof(HasLastReturnToDraftReason))]
     [NotifyCanExecuteChangedFor(nameof(EditMetadataCommand))]
     [NotifyCanExecuteChangedFor(nameof(ReplacePdfCommand))]
     [NotifyCanExecuteChangedFor(nameof(HardDeleteDraftCommand))]
+    [NotifyCanExecuteChangedFor(nameof(SubmitForReviewCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ReviewAndSignCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ReturnToDraftCommand))]
     public partial DocumentRevision? CurrentRevision { get; private set; }
+
+    /// <summary>
+    /// Assigned-reviewer rows for the current revision when
+    /// <see cref="DocumentLifecycle.InReview"/>. Empty otherwise.
+    /// Populated by <see cref="LoadAsync"/>; rendered by the
+    /// detail view's assignment panel with a per-status badge
+    /// (Pending = amber, Signed = green, Discarded = neutral).
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanReviewAndSign))]
+    [NotifyCanExecuteChangedFor(nameof(ReviewAndSignCommand))]
+    public partial IReadOnlyList<AssignedReviewerRow> Assignments { get; private set; } =
+        Array.Empty<AssignedReviewerRow>();
+
+    /// <summary>
+    /// Comment-panel view model when the current revision is in
+    /// <see cref="DocumentLifecycle.InReview"/>;
+    /// <see langword="null"/> otherwise. Built fresh per
+    /// <see cref="LoadAsync"/>; the detail view's
+    /// <c>ContentControl</c> swaps the embedded
+    /// <c>CommentPanelControl</c> when this property changes.
+    /// </summary>
+    [ObservableProperty]
+    public partial CommentPanelViewModel? CommentPanel { get; private set; }
 
     /// <summary>
     /// Content-virtual-host URL for the current revision's PDF, or
@@ -182,10 +244,42 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
 
     private bool IsLatestDraft => CurrentRevision?.Lifecycle == DocumentLifecycle.Draft;
 
+    private bool IsLatestInReview => CurrentRevision?.Lifecycle == DocumentLifecycle.InReview;
+
     private bool IsAuthorOfLatest =>
         CurrentRevision is not null
         && _currentUser.UserId is { } me
         && CurrentRevision.AuthorUserId == me;
+
+    /// <summary>
+    /// True when the current user is in the assigned-reviewer list
+    /// for the current revision with a <c>Pending</c> status. Used
+    /// to gate the Review-and-Sign affordance — only named
+    /// reviewers with an in-flight assignment can sign.
+    /// </summary>
+    private bool IsPendingNamedReviewer
+    {
+        get
+        {
+            if (_currentUser.UserId is not { } me)
+            {
+                return false;
+            }
+            return Assignments.Any(a =>
+                a.Status == DocumentReviewAssignmentStatus.Pending
+                && AssignmentReviewerId(a.AssignmentId) == me);
+        }
+    }
+
+    // The AssignedReviewerRow projection drops the ReviewerUserId
+    // for display, so we look up the underlying assignment row's
+    // ReviewerUserId via the stored DocumentReviewAssignment list
+    // captured during the most recent LoadAsync. Cached in a
+    // private dictionary keyed by AssignmentId.
+    private Dictionary<Guid, Guid> _assignmentReviewers = [];
+
+    private Guid? AssignmentReviewerId(Guid assignmentId)
+        => _assignmentReviewers.TryGetValue(assignmentId, out var userId) ? userId : null;
 
     /// <summary>
     /// Whether the Edit Metadata affordance is enabled — latest
@@ -214,6 +308,68 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
         IsLatestDraft
         && IsAuthorOfLatest
         && _currentUser.Permissions.Contains(PermissionNames.DocumentHardDelete);
+
+    /// <summary>
+    /// Whether the Submit-for-Review affordance is enabled — latest
+    /// revision is Draft and the user holds both
+    /// <see cref="PermissionNames.DocumentSubmitForReview"/> AND
+    /// <see cref="PermissionNames.DocumentAssignReviewers"/>. The
+    /// AND of both per ADR 0008's strict-gatekeeper option: users
+    /// with only one of the two permissions see no submit
+    /// affordance.
+    /// </summary>
+    public bool CanSubmitForReview =>
+        IsLatestDraft
+        && _currentUser.Permissions.Contains(PermissionNames.DocumentSubmitForReview)
+        && _currentUser.Permissions.Contains(PermissionNames.DocumentAssignReviewers);
+
+    /// <summary>
+    /// Whether the Review-and-Sign affordance is enabled — latest
+    /// revision is in InReview, the current user is in the
+    /// assigned-reviewer list with a Pending assignment, and the
+    /// user holds <see cref="PermissionNames.DocumentReview"/>.
+    /// </summary>
+    public bool CanReviewAndSign =>
+        IsLatestInReview
+        && IsPendingNamedReviewer
+        && _currentUser.Permissions.Contains(PermissionNames.DocumentReview);
+
+    /// <summary>
+    /// Whether the Return-to-Draft affordance is enabled — latest
+    /// revision is in InReview and the user holds
+    /// <see cref="PermissionNames.DocumentReturnForEdits"/>. Per the
+    /// C6b plan §G, available to reviewers and to the author when
+    /// their permissions allow it; no separate gating for the
+    /// author vs reviewer path.
+    /// </summary>
+    public bool CanReturnToDraft =>
+        IsLatestInReview
+        && _currentUser.Permissions.Contains(PermissionNames.DocumentReturnForEdits);
+
+    /// <summary>True when the detail view should render the
+    /// assigned-reviewer panel — the panel is meaningful only while
+    /// the revision is InReview.</summary>
+    public bool ShowAssignmentPanel => IsLatestInReview;
+
+    /// <summary>True when the detail view should render the
+    /// reviewer-comment panel — same lifecycle gate as
+    /// <see cref="ShowAssignmentPanel"/>.</summary>
+    public bool ShowCommentPanel => IsLatestInReview;
+
+    /// <summary>
+    /// The most recent return-to-draft reason stamped on the
+    /// current revision, or <see langword="null"/> when the
+    /// revision has never been returned (or has since been
+    /// re-submitted, which clears the live column). The detail
+    /// view surfaces this when the revision is back in Draft so
+    /// the author sees why their submission was returned.
+    /// </summary>
+    public string? LastReturnToDraftReason => CurrentRevision?.LastReturnToDraftReason;
+
+    /// <summary>True when <see cref="LastReturnToDraftReason"/> is
+    /// non-empty — bound to the reason-display visibility.</summary>
+    public bool HasLastReturnToDraftReason =>
+        !string.IsNullOrEmpty(LastReturnToDraftReason);
 
     /// <summary>
     /// Loads (or reloads) <see cref="CurrentRevision"/> and
@@ -301,6 +457,53 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
         else
         {
             VaultDocumentUrl = null;
+        }
+
+        // C6b: load assignment + comment surfaces when the revision
+        // is InReview; clear them otherwise. Assignment panel
+        // requires user-display resolution; comment panel is its
+        // own VM and self-loads on its Loaded event.
+        if (CurrentRevision is { Lifecycle: DocumentLifecycle.InReview, Id: var revId })
+        {
+            var rawAssignments = await _assignments.GetByRevisionIdAsync(
+                revId, cancellationToken);
+
+            var reviewerIds = rawAssignments
+                .Select(a => a.ReviewerUserId)
+                .Distinct()
+                .ToList();
+            var reviewers = await _users.GetByIdsAsync(reviewerIds, cancellationToken);
+            var reviewerById = reviewers.ToDictionary(u => u.Id);
+
+            Assignments = rawAssignments
+                .OrderBy(a => a.AssignedAtUtc)
+                .Select(a =>
+                {
+                    var (display, username) = reviewerById.TryGetValue(a.ReviewerUserId, out var u)
+                        ? (u.DisplayName, (string?)u.Username)
+                        : ("(unknown user)", (string?)null);
+                    return new AssignedReviewerRow(a.Id, display, username, a.Status);
+                })
+                .ToList();
+
+            _assignmentReviewers = rawAssignments.ToDictionary(a => a.Id, a => a.ReviewerUserId);
+
+            // Build a fresh comment-panel VM so its CanComment + load
+            // reflect the current user's permissions and the current
+            // revision. CommentPanelControl.OnLoaded triggers its
+            // LoadCommand to populate the thread.
+            CommentPanel = new CommentPanelViewModel(
+                revId, _comments, _users, _lifecycle, _currentUser);
+
+            OnPropertyChanged(nameof(IsPendingNamedReviewer));
+            OnPropertyChanged(nameof(CanReviewAndSign));
+            ReviewAndSignCommand.NotifyCanExecuteChanged();
+        }
+        else
+        {
+            Assignments = Array.Empty<AssignedReviewerRow>();
+            _assignmentReviewers = new Dictionary<Guid, Guid>();
+            CommentPanel = null;
         }
     }
 
@@ -390,6 +593,87 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
     {
         await _lifecycle.HardDeleteDraftAsync(Document.Id, cancellationToken);
         Deleted?.Invoke(this, EventArgs.Empty);
+    }
+
+    /// <summary>
+    /// Submit-for-Review command (ADR 0008 C6b stop 7) — opens
+    /// <see cref="ISubmitForReviewPrompter"/>; the prompter's
+    /// dialog VM owns the candidate load + role-prompter + submit
+    /// transaction internally. On a positive return, reloads to
+    /// surface the new InReview state + assignment list +
+    /// comment panel.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanSubmitForReview))]
+    private async Task SubmitForReviewAsync(CancellationToken cancellationToken)
+    {
+        if (CurrentRevision is null)
+        {
+            return;
+        }
+
+        var submitted = await _submitPrompter.PromptAsync(
+            CurrentRevision.Id, cancellationToken);
+        if (!submitted)
+        {
+            return;
+        }
+
+        await LoadAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Review-and-Sign command (ADR 0008 C6b stop 7) — opens
+    /// <see cref="IReviewAndSignPrompter"/>; the prompter resolves
+    /// the role then calls the lifecycle service's sign transaction.
+    /// On success, reloads — if this signature completed the
+    /// assignment set the revision is now Approved and the panel
+    /// rendering changes accordingly.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanReviewAndSign))]
+    private async Task ReviewAndSignAsync(CancellationToken cancellationToken)
+    {
+        if (CurrentRevision is null)
+        {
+            return;
+        }
+
+        var signed = await _signPrompter.PromptAsync(
+            CurrentRevision.Id,
+            Document.Title,
+            CurrentRevision.RevisionLabel,
+            cancellationToken);
+        if (!signed)
+        {
+            return;
+        }
+
+        await LoadAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Return-to-Draft command (ADR 0008 C6b stop 7) — opens
+    /// <see cref="IReturnToDraftPrompter"/>; the prompter's dialog
+    /// captures the required reason and calls the lifecycle
+    /// service. On success, reloads — the revision is back in Draft
+    /// with assignments Discarded and
+    /// <see cref="LastReturnToDraftReason"/> stamped.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanReturnToDraft))]
+    private async Task ReturnToDraftAsync(CancellationToken cancellationToken)
+    {
+        if (CurrentRevision is null)
+        {
+            return;
+        }
+
+        var returned = await _returnPrompter.PromptAsync(
+            CurrentRevision.Id, cancellationToken);
+        if (!returned)
+        {
+            return;
+        }
+
+        await LoadAsync(cancellationToken);
     }
 
     /// <summary>

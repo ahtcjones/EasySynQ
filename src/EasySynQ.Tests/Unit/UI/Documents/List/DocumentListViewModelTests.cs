@@ -380,6 +380,9 @@ public class DocumentListViewModelTests
                 d,
                 detailDocs.Object,
                 detailRevs.Object,
+                Mock.Of<EasySynQ.Services.Abstractions.IDocumentReviewAssignmentRepository>(),
+                Mock.Of<EasySynQ.Services.Abstractions.IDocumentReviewCommentRepository>(),
+                Mock.Of<EasySynQ.Services.Abstractions.IUserRepository>(),
                 Mock.Of<EasySynQ.Services.Vault.IVaultService>(),
                 Mock.Of<EasySynQ.Services.Vault.IVaultPathProvider>(
                     p => p.VaultRoot == @"C:\test-vault"),
@@ -387,7 +390,10 @@ public class DocumentListViewModelTests
                 currentUser,
                 lifecycle.Object,
                 Mock.Of<EasySynQ.UI.Documents.IFilePicker>(),
-                Mock.Of<EasySynQ.UI.Documents.EditMetadata.IEditMetadataPrompter>());
+                Mock.Of<EasySynQ.UI.Documents.EditMetadata.IEditMetadataPrompter>(),
+                Mock.Of<EasySynQ.UI.Documents.SubmitForReview.ISubmitForReviewPrompter>(),
+                Mock.Of<EasySynQ.UI.Documents.ReviewAndSign.IReviewAndSignPrompter>(),
+                Mock.Of<EasySynQ.UI.Documents.ReturnToDraft.IReturnToDraftPrompter>());
             return constructedDetail;
         }
 
@@ -488,12 +494,18 @@ public class DocumentListViewModelTests
             var dvm = new DocumentDetailViewModel(
                 d,
                 docs.Object, revs.Object,
+                Mock.Of<EasySynQ.Services.Abstractions.IDocumentReviewAssignmentRepository>(),
+                Mock.Of<EasySynQ.Services.Abstractions.IDocumentReviewCommentRepository>(),
+                Mock.Of<EasySynQ.Services.Abstractions.IUserRepository>(),
                 Mock.Of<EasySynQ.Services.Vault.IVaultService>(),
                 Mock.Of<EasySynQ.Services.Vault.IVaultPathProvider>(
                     p => p.VaultRoot == @"C:\test-vault"),
                 clock, currentUser, lifecycle.Object,
                 Mock.Of<EasySynQ.UI.Documents.IFilePicker>(),
-                Mock.Of<EasySynQ.UI.Documents.EditMetadata.IEditMetadataPrompter>());
+                Mock.Of<EasySynQ.UI.Documents.EditMetadata.IEditMetadataPrompter>(),
+                Mock.Of<EasySynQ.UI.Documents.SubmitForReview.ISubmitForReviewPrompter>(),
+                Mock.Of<EasySynQ.UI.Documents.ReviewAndSign.IReviewAndSignPrompter>(),
+                Mock.Of<EasySynQ.UI.Documents.ReturnToDraft.IReturnToDraftPrompter>());
             constructed.Add(dvm);
             return dvm;
         }

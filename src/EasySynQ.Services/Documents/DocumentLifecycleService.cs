@@ -37,6 +37,7 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
     private readonly IDocumentRepository _documents;
     private readonly IDocumentRevisionRepository _revisions;
     private readonly IDocumentReviewAssignmentRepository _assignments;
+    private readonly IDocumentReviewCommentRepository _comments;
     private readonly ISignatureService _signatures;
     private readonly IDomainEventDispatcher _eventDispatcher;
     private readonly ICurrentUserAccessor _currentUser;
@@ -49,6 +50,7 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
         IDocumentRepository documents,
         IDocumentRevisionRepository revisions,
         IDocumentReviewAssignmentRepository assignments,
+        IDocumentReviewCommentRepository comments,
         ISignatureService signatures,
         IDomainEventDispatcher eventDispatcher,
         ICurrentUserAccessor currentUser,
@@ -59,6 +61,7 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
         ArgumentNullException.ThrowIfNull(documents);
         ArgumentNullException.ThrowIfNull(revisions);
         ArgumentNullException.ThrowIfNull(assignments);
+        ArgumentNullException.ThrowIfNull(comments);
         ArgumentNullException.ThrowIfNull(signatures);
         ArgumentNullException.ThrowIfNull(eventDispatcher);
         ArgumentNullException.ThrowIfNull(currentUser);
@@ -69,6 +72,7 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
         _documents = documents;
         _revisions = revisions;
         _assignments = assignments;
+        _comments = comments;
         _signatures = signatures;
         _eventDispatcher = eventDispatcher;
         _currentUser = currentUser;
@@ -161,8 +165,11 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
     /// <inheritdoc />
     public async Task<DocumentRevision> ReturnToDraftAsync(
         Guid revisionId,
+        string reason,
         CancellationToken cancellationToken)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+
         _ = RequireAuthenticatedUser();
         RequirePermission(PermissionNames.DocumentReturnForEdits);
 
@@ -184,8 +191,11 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
             }
         }
 
-        // Revision back to Draft + AuthorSignatureId cleared (per Q3).
-        revision.ReturnToDraft();
+        // Revision back to Draft + AuthorSignatureId cleared (per Q3)
+        // + LastReturnToDraftReason stamped with the supplied reason
+        // (ADR 0008 C6b). Audit-row count unchanged at 1+N — the
+        // reason rides on the same revision-Update row.
+        revision.ReturnToDraft(reason);
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
 
@@ -536,5 +546,40 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
         _documents.HardDelete(document);
 
         await _unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<DocumentReviewComment> AddCommentAsync(
+        Guid revisionId,
+        string bodyText,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(bodyText);
+
+        var actorId = RequireAuthenticatedUser();
+        RequirePermission(PermissionNames.DocumentReview);
+
+        var revision = await _revisions.GetByIdAsync(revisionId, cancellationToken)
+            ?? throw new KeyNotFoundException(
+                $"DocumentRevision {revisionId} not found (no row, or row is soft-deleted).");
+
+        if (revision.Lifecycle != DocumentLifecycle.InReview)
+        {
+            throw new InvalidOperationException(
+                $"Cannot add a comment to revision {revisionId}: current state is " +
+                $"'{revision.Lifecycle}', expected '{nameof(DocumentLifecycle.InReview)}'.");
+        }
+
+        var comment = new DocumentReviewComment(
+            id: Guid.NewGuid(),
+            documentRevisionId: revisionId,
+            authorUserId: actorId,
+            bodyText: bodyText,
+            createdAtUtc: _clock.UtcNow);
+
+        await _comments.AddAsync(comment, cancellationToken);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return comment;
     }
 }
