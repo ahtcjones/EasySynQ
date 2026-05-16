@@ -80,6 +80,18 @@ discipline for writing the smoke walk in C6b / C7 / future phases.
   touched disk state outside the app: rename-back, undelete,
   unsuspend, etc.
 
+- **Commit message tables risk shell-quoting issues; prefer bullet
+  lists for multi-row data in commit bodies.** The C6a commit's
+  first HEREDOC attempt failed because a Markdown table in the
+  Phase 2 chain-status section contained `|` characters that
+  bash's parser tripped on even inside a single-quoted HEREDOC.
+  The workaround (write to a temp file, `git commit -F`) recovered
+  the commit but lost the table format. For commits with multi-row
+  data, default to bullet-list format up front — same information,
+  no shell-quoting surface. The table-via-HEREDOC pattern can come
+  back when we have a cleaner mechanism (e.g., commit-message
+  templates stored in repo, helper script that pipes via stdin).
+
 ## Reminders for the C6a closing handoff (when C9 lands)
 
 Lessons accumulated during the smoke pause that should be pinned at

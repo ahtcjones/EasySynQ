@@ -2288,3 +2288,372 @@ infrastructure end-to-end, real smoke window opens.
 Working tree clean as of this entry's commit.
 
 ---
+
+## 2026-05-16 (Phase 2 C6a) — Document Controller author surfaces (ADR 0008 C6a, ADR 0010 amended)
+
+Single commit on master since the previous handoff (this docs
+commit will be the second):
+
+- `b24400b` feat(ui): Document Controller author surfaces
+  (ADR 0008 C6a, ADR 0010 amended) — 55 files (+ many new under
+  `src/EasySynQ.UI/Documents/`).
+
+Sixth implementation commit in the Phase 2 chunk chain. C6a is
+the largest single-commit chunk in Phase 2's history to date by
+every meaningful metric: file count (55), test growth (495 → 621
+across the chunk, +126), ADR amendment count (three new sections
+appended to ADR 0010), smoke iterations (five), and discovered-
+and-fixed findings (three explicit Findings + multiple structural
+follow-ons). That scale is earned — C6a is the first commit in
+Phase 2 that lights up real user-facing behavior end-to-end,
+exercising every prior Phase 2 commit's infrastructure (C1's
+entities, C2's vault, C3's lifecycle service, C4's signing-role
+plumbing, C5's PDF viewer) under actual smoke-time interaction.
+The handoff is correspondingly long.
+
+### Scope and shape
+
+Author-working-alone surface — sign in → create document → upload
+PDF → render in viewer → edit metadata → replace PDF → hard-delete.
+No reviewers, no submission, no signatures (those land in C6b per
+the C6a/C6b split documented in the brief). Five UI view models,
+two modal dialogs, two list/detail views, four new service
+methods, four new repository methods, one new control-side
+dependency property, one new shared helper, one converted seam
+(NavigationContentFactory static → instance with DI), one new
+smoke-setup script.
+
+### ADR 0010 amended three times, all in this commit
+
+The original ADR chose `file://` URL loading on the assumption
+"the bundled viewer is self-contained so this isn't a constraint."
+Smoke walks 1-4 disproved that assumption in four distinct ways,
+each surfacing a different layer of the WebView2 cascade-init
+failure model. The amendments are dated `2026-05-16 (Amended)`
+and live as three appended sections at the bottom of the ADR
+under a `## Subsequent finding` heading. Status flipped from
+`Accepted` to `Accepted (amended)`.
+
+The three amendments, in order of surface:
+
+1. **Virtual host mapping required** (smoke walks #1-2). PDF.js's
+   PDF-fetch is a cross-origin request from the viewer's file://
+   origin to the vault's file:// origin; Chromium's same-origin
+   policy blocks it. Two WebView2 virtual hosts registered at
+   PdfViewerControl init time:
+   `https://easysynq-pdfviewer.local/` → viewer assets,
+   `https://easysynq-pdfcontent.local/` → vault root (a new
+   `ContentRoot` dependency property on PdfViewerControl, bound
+   to the VM's `IVaultPathProvider.VaultRoot`). New static
+   `BuildContentUrl(absoluteFilePath, contentRoot)` helper for
+   callers. `BuildViewerUrl` signature changes from
+   `(viewerHtmlPath, pdfPath)` to `(contentUrl)` — the viewer
+   URL is now a constant.
+
+2. **Viewer-host scope refinement** (smoke walk #3). Initial
+   mapping scoped at `Assets/pdfviewer/web/` — viewer.mjs's
+   `../build/pdf.mjs` sibling import 404'd, halting PDF.js
+   before any content fetch. Mapping moved up one level to
+   `Assets/pdfviewer/` (parent of both `web/` and `build/`);
+   viewer URL gains a `/web/` path segment. Version-bump
+   verification note added: at every PDF.js bump, confirm the
+   distribution's top-level directory layout still has the
+   viewer importing the library via a sibling-path resolve.
+
+3. **PDF.js HOSTED_VIEWER_ORIGINS patch** (smoke walk #4).
+   PDF.js's own JavaScript-internal `validateFileURL` rejects
+   PDF URLs whose origin differs from the viewer's, with a
+   hardcoded allowlist of Mozilla origins. Our viewer-and-
+   content two-host design is exactly the cross-origin pattern
+   the guard rejects. Single-line patch to
+   `Assets/pdfviewer/web/viewer.mjs` adds
+   `"https://easysynq-pdfviewer.local"` to the Set literal at
+   line 19499. The HOSTED_VIEWER_ORIGINS const is module-
+   private (inside an IIFE); script-level overrides are not
+   feasible. Option B (single virtual host via
+   `WebResourceRequested` handler) was evaluated and rejected
+   on the Range-request hidden cost — large PDFs (100+ page
+   customer specifications are realistic in a QMS deployment)
+   require HTTP Range support that WebView2's native fetch
+   pipeline already handles correctly; reimplementing
+   Range/multi-range/suffix-length/past-EOF handling in a
+   custom handler would reproduce existing infrastructure with
+   our own bugs.
+
+### Cascade-init failure model — the load-bearing diagnostic frame for C6a smoke
+
+C6a's smoke arc surfaced the failure model that now lives as
+SCRATCHPAD lesson 6. Every WebView2-hosted feature has at least
+four observability layers; each smoke walk hit a different one.
+
+| Layer | Surface | Smoke walk that hit it |
+|---|---|---|
+| **Layer 0** — VM-side load (pre-viewer I/O) | `DocumentDetailViewModel.LoadAsync` try/catch | Walk #5 post-verification (`FileNotFoundException` from `GetVaultFilePathAsync` when a vault file was missing) |
+| **Layer 1** — Outer navigation | `CoreWebView2.NavigationCompleted.IsSuccess` | Walks #1-2 (cross-origin file:// blocking viewer.html load) |
+| **Layer 2** — Sub-resource fetches | `CoreWebView2.WebResourceResponseReceived` non-2xx | Walk #3 (viewer-host scope: `build/pdf.mjs` 404) |
+| **Layer 3** — JS-internal errors | (deliberately uncovered; would need JS-host bridge) | Walk #4 (`validateFileURL` rejection inside PDF.js) |
+
+C6a covers Layers 0+1+2 via a viewer-error banner above the PDF
+area in the detail view. The banner is fed from **three input
+wires** — one per covered layer:
+
+1. `PdfViewerControl.NavigationFailed` raised from
+   `NavigationCompleted.IsSuccess == false` (Layer 1).
+2. `PdfViewerControl.NavigationFailed` raised from
+   `WebResourceResponseReceived` non-2xx on the content host
+   (Layer 2).
+3. `DocumentDetailViewModel.LoadAsync` try/catch around vault
+   I/O → direct call to `OnViewerNavigationFailed` (Layer 0).
+
+Layer 3 stays deliberately uncovered — the HOSTED_VIEWER_ORIGINS
+patch removes the only expected Layer-3 case. If a future
+feature requires Layer 3 coverage, the named approach is a JS-
+host bridge via `AddScriptToExecuteOnDocumentCreatedAsync` +
+`WebMessageReceived` subscribing to PDF.js's eventBus.
+
+### Three Findings + multiple structural follow-ons
+
+The user-driven smoke surfaced three explicit Findings during
+walk #1 (`Finding 1` PDF rendering as black page; `Finding 2`
+EditMetadataDialog Height clipping the button row; `Finding 3`
+KeyNotFoundException on second HardDelete). Finding 1 was the
+deepest — initially misdiagnosed as toolbar theming polish
+(deferred to C7), correctly re-diagnosed in walk #2 as a real
+rendering failure, then peeled back through three further smoke
+walks as the cascade-init layers revealed themselves. Finding 3
+was misdiagnosed in the report as a service-layer Id-type
+mismatch; audit log forensics disambiguated within a single
+diagnostic pass to the actual cause (missing
+`DocumentDetailViewModel.Deleted` event subscriber).
+
+Walk #5 post-verification surfaced one more layer (Layer 0)
+that wasn't on the original smoke checklist — the
+`GetVaultFilePathAsync` throw path had been present since C5 but
+never user-reachable until C6a wired `DocumentDetailViewModel.
+LoadAsync` to it. The fix folded into C6a rather than deferring,
+on the reasoning that the gap was discovered specifically because
+of C6a and the fix sits on the same surface (the banner
+mechanism) the broader C6a work just landed.
+
+### Lesson families pinned in SCRATCHPAD
+
+C6a accumulated lessons across three distinct families. The
+SCRATCHPAD entry has the full text; this handoff names the
+families so future planners know where to look.
+
+**Family A — Diagnostic discipline.** Lessons 1, 4, 7 in
+SCRATCHPAD:
+- (1) Audit-log-as-ground-truth for diagnosing UI errors.
+- (4) "Loaded but mis-styled" vs "didn't load at all" — check
+  the actual failure trail before reaching for polish-deferral.
+- (7) Visible-effect hypotheses are tempting but unreliable —
+  check actual error trails before reaching for them.
+
+This family was load-bearing across the smoke arc. Three times
+the first diagnostic framing was wrong because it reached for
+the most visually-suggestive hypothesis (Finding 3, walk #1's
+Finding 1 misdiagnosis, walk #3's Issue A cross-origin
+hypothesis). Each correction came from concrete evidence (audit
+log, DevTools Network/Console). The pattern is named so the
+next phase's debugger has the discipline as a working concept.
+
+**Family B — Cascade-init failure model.** Lessons 5, 6 in
+SCRATCHPAD:
+- (5) Silent-failure event subscribers are bugs.
+- (6) WebView2-hosted features have four observability layers
+  (the model above).
+
+This family came out of the C6a smoke arc and is broadly reusable
+for any future WebView2-hosted feature (PDF viewer in C7+ for
+print-stylesheet integration; potential future viewers for
+external documents in C8; etc.). Future planners adding a
+WebView2-hosted feature should map their expected failure modes
+against all four layers before deciding which to instrument.
+
+**Family C — Procedure writing.** Three lessons under a "Reminders
+for next phase's procedure writing" subsection in SCRATCHPAD:
+- Failure-injection ordering vs destructive operations.
+- Cleanup-after-diagnostic checklist.
+- Commit-message tables risk shell-quoting; prefer bullet lists.
+
+This family is process discipline — distinct from the technical
+lessons in families A and B. Future phases get a named category
+to grow as they encounter their own smoke-procedure friction.
+
+### Scope-creep convention working as designed — five surfaces
+
+CLAUDE.md's flag-first-then-confirm convention fired across five
+distinct surfaces during C6a. Documenting concretely so the
+convention is not abstract — every entry below was a real
+discovered-then-paused-then-confirmed moment:
+
+1. **Stop point 2: `IDocumentRevisionRepository.GetByDocumentIdAsync`.**
+   Added beyond the two repo methods approved at plan-time. The
+   defensive single-revision check in `HardDeleteDraftAsync`
+   needed it; paused, surfaced, got approval.
+
+2. **Stop point 3: `IUserRepository.GetByIdsAsync`.** Discovered
+   mid-stop when the DocumentListItem author-username projection
+   surfaced. The user-repo had `FindByUsernameAsync` but no
+   bulk-by-ids shape. Paused, asked, got approval (option A —
+   bulk fetch over N+1 or skip).
+
+3. **Stop point 3: `EditDraftMetadataAsync` + `HardDeleteDraftAsync`
+   (B5/B6).** The brief listed the affordances but not the
+   service methods. Paused at plan-approval time; user approved
+   both inclusions explicitly.
+
+4. **Walk #3 batch: `NavigationFailed` banner subscriber +
+   `WebResourceResponseReceived` wiring.** Surfaced when DevTools
+   showed PDF-load failures bypassing the existing banner. Both
+   the Layer 1 banner subscription gap and the Layer 2 sub-
+   resource coverage gap were flagged before the fix landed;
+   approval to fold both into the cross-origin fix batch.
+
+5. **Smoke walk #5 post-verification: Layer 0 fix.** The
+   `[ERR]` entries surfaced a pre-existing coverage gap that
+   wasn't in the C6a plan. Surfaced explicitly with the choice
+   "defer as follow-up OR fold into C6a"; user chose fold-in
+   with reasoning about scope-creep vs structural-completion
+   distinction.
+
+The pattern across all five: discovered → paused → surfaced with
+options + recommendation → user approved one → implemented +
+documented. No silent additions, no after-the-fact framings.
+This is what the convention's first articulation in C2's handoff
+predicted; C6a is the densest test of the convention to date
+and it held across every surface.
+
+### Risk-driven smoke protocol — cost model validated
+
+The C1 handoff established the risk-driven smoke protocol: smoke
+only where integration tests can't reach the risk; skip where
+they cover it equivalently. C2-C5 each invoked the skip
+deliberately (filesystem behavior covered by tempdir tests;
+lifecycle covered by interceptor-pipeline tests; signature
+dialog scaffolding with no production invocation yet; PDF viewer
+scaffolding with no production invocation yet). C6a was where
+that deferred smoke cost concentrated — and that concentration
+is exactly the cost shape the protocol set up to incur.
+
+Five smoke iterations across C6a is more smoke than C1-C5
+combined, but five iterations on one integration-rich commit is
+materially cheaper than five smoke runs spread across C1-C5
+where the gap wasn't there to find. The load-bearing smoke
+landed precisely where the C5 handoff predicted ("smoke is now
+genuinely needed because real-user-driven end-to-end behavior is
+testable for the first time in Phase 2"). The protocol's cost
+model is now validated against a real concentration event;
+future Phase 2 chunks (C6b, C7, C8) can apply the same
+calibration with concrete evidence the deferral shape works.
+
+### Phase 1 Follow-Ups
+
+No changes in this commit. Eight carry-overs plus two cosmetic
+deferrals from prior handoffs stay unchanged:
+
+- **#1 sign-in audit** — deferred.
+- **#2 PreviousLoginUtc** — deferred.
+- **#3 navigation audit** — deferred.
+- **#4 pulse tint tokens** — deferred.
+- **#6 connection-string config** — deferred.
+- **#7 AsyncLocal correlation** — deferred; still not yet
+  triggered (C6a's operations are all single-`SaveChanges` per
+  logical operation, same as C3-C5).
+- **#8 inert `Serilog.Sinks.File`** — deferred.
+- **#11 owned-type audit ADR** — deferred. Worth noting that
+  C6a's raw-SQL script (`grant-document-permissions.ps1`)
+  surfaced a related lesson — owned-type column flattening
+  (RolePermission/UserPermission's `EffectivePeriod` lives at
+  flat `EffectiveFromUtc` / `EffectiveToUtc` columns, NOT
+  prefixed `EffectivePeriod_*`). The lesson is captured in
+  SCRATCHPAD's reminders-for-handoff #3 alongside the
+  text-comparison-format DateTime issue; both fall under the
+  raw-SQL-script-against-EF-columns family.
+- **EventId 1001 missing on wrong-password** — deferred;
+  cosmetic.
+- **Raw `Log.Information` empty SourceContext** in
+  `OnStartup`/`OnExit` — deferred; cosmetic.
+
+### Phase 2 commit chain status
+
+| Commit | Status | Scope |
+|---|---|---|
+| C1 (data) | ✓ `25d1748` | Domain entities, EF configs, migration, SPEC §5.1 amendment, ADR 0008 Accepted |
+| C2 (vault) | ✓ `f31b378` | `IVaultService` — content-addressed file storage; `Vault.PhysicalDelete` permission |
+| C3 (lifecycle) | ✓ `0ae4317` | `IDocumentLifecycleService` + `IDomainEventDispatcher` + `DocumentRevisionApprovedEvent`; `SignatureService.StageSignatureAsync` |
+| C4 (sign-as-role) | ✓ `d506ee9` | ADR 0009 Accepted; `IRoleResolutionService` + `ISignatureRolePrompter` + `SignAsRoleDialog`; `RolePermissions` plumbing |
+| C5 (PDF viewer) | ✓ `820d040` | ADR 0010 Accepted; Microsoft.Web.WebView2 dependency + PDF.js 5.7.284 bundled; `PdfViewerControl`; `IVaultService.GetVaultFilePathAsync`; App.xaml.cs WebView2 runtime detection |
+| **C6a (author surfaces)** | ✓ `b24400b` | Document Controller author-working-alone surfaces (list, detail, create, edit, replace, hard-delete); ADR 0010 amended three times (virtual hosts + viewer-host scope + HOSTED_VIEWER_ORIGINS patch); banner mechanism covering Layers 0-2 of the cascade-init failure model; `grant-document-permissions.ps1` smoke script; SCRATCHPAD top-level doc seeded |
+| C6b (submit + review-sign) | **next** | Submit-for-review dialog + review-and-sign dialog; first production-runtime exercise of C4's multi-role signing picker |
+| C7 (lock inspector + print + toolbar theming) | pending | Lock-reason chains, print stylesheets, the deferred Finding 1 PDF.js toolbar theming |
+| C8 (external library) | pending | ExternalDocument CRUD, compatibility flagging |
+| C9 (handoff) | pending | Phase 2 closing handoff note |
+
+### Next-direction (next session pick)
+
+**C6b — submit-for-review dialog + review-and-sign dialog.** C6a
+leaves C6b a clean foundation:
+
+- **Authoring loop works end-to-end** — create, edit, replace,
+  delete are all real surfaces with tested behavior. C6b layers
+  on top rather than building underneath.
+- **Cascade-init failure model is documented and instrumented**
+  at Layers 0, 1, 2 — C6b's new dialogs (which don't touch the
+  viewer) inherit the framework if/when they need failure
+  routing.
+- **Viewer is structurally sound** — the WebView2 + PDF.js
+  integration is no longer load-bearing risk; the toolbar
+  theming polish stays in C7.
+- **C4's multi-role signing picker** (`ISignatureRolePrompter` +
+  `SignAsRoleDialog`) has been DI-registered and production-
+  invocable since C4 but never exercised in production because
+  no signing flow existed yet. C6b is where it finally renders
+  for a real gesture (the submit-for-review and review-and-sign
+  flows both invoke it).
+- **`IDocumentLifecycleService`'s C3 methods**
+  (`SubmitForReviewAsync`, `ReturnToDraftAsync`,
+  `SignAsReviewerAsync`) have full integration-test coverage
+  from C3 — C6b wires UI to existing tested service methods.
+  Closer to "wire two existing dialogs to two existing services"
+  than "build new infrastructure."
+
+C6b's risk surfaces:
+- **Multi-role signing UI in production** — first time C4's
+  picker is reached by a real user gesture. C6b's smoke will
+  exercise the picker for the first time; need to validate the
+  single-role auto-return path AND the multi-role picker path
+  against a user with multiple roles. The smoke-setup script
+  may need extension to grant a second role.
+- **Assigned-reviewer model** — C3 implemented the assigned-
+  reviewer state machine but no UI surface has named reviewers
+  yet. C6b's submit dialog needs a reviewer-picker UX — likely
+  a multi-select against the user list, with permission-gated
+  filtering by `Document.Review`.
+- **Permission catalog growth** — `Document.SubmitForReview`
+  and `Document.AssignReviewers` seeded in C1 but no production
+  flow consumes them yet. C6b's submit command is gated on
+  both. The smoke-setup script grants them.
+- **No new third-party frameworks; cascade-init layers settled.**
+  C6b doesn't change PdfViewerControl, doesn't touch the vault,
+  doesn't introduce new WebView2 surfaces. The smoke profile
+  shifts from "discovering the viewer's failure modes" to
+  "exercising the signing flow against a multi-role user."
+
+Likely shorter to plan and implement than C6a — the heaviest
+lifting (state machine, signing infrastructure, viewer
+integration) all landed in C3-C5; C6a integrated those with
+authoring surfaces; C6b integrates the same infrastructure
+with review surfaces. Plan-first review cycle still earns its
+time; the scope is bounded enough that the planning conversation
+should converge faster than C6a's did.
+
+**Phase 2 milestone:** with C6a landed, Phase 2 is six of nine
+implementation commits in (67%). C6a is the chunk's structural
+high-water mark by surface area, ADR amendments, test growth,
+and smoke iterations. C6b-C8 inherit a settled foundation;
+C9 is the closing handoff.
+
+Working tree clean as of this entry's commit.
+
+---
