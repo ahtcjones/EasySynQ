@@ -7,6 +7,7 @@
         xmlns:nav="clr-namespace:EasySynQ.UI.Navigation"
         xmlns:pulseviews="clr-namespace:EasySynQ.UI.Pulse.Views"
         xmlns:placeholders="clr-namespace:EasySynQ.UI.Placeholders"
+        xmlns:doclist="clr-namespace:EasySynQ.UI.Documents.List"
         mc:Ignorable="d"
         Title="EasySynQ — Quality Management System"
         Width="1400"
@@ -45,6 +46,10 @@
         </DataTemplate>
         <DataTemplate DataType="{x:Type placeholders:ComingSoonViewModel}">
             <placeholders:ComingSoonView />
+        </DataTemplate>
+        <!-- Phase 2 C6a — Document Controller list view. -->
+        <DataTemplate DataType="{x:Type doclist:DocumentListViewModel}">
+            <doclist:DocumentListView />
         </DataTemplate>
     </Window.Resources>
 

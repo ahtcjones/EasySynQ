@@ -9,6 +9,7 @@ using EasySynQ.Services.Authorization;
 using EasySynQ.Services.Events;
 using EasySynQ.Services.Signatures;
 using EasySynQ.Services.Time;
+using EasySynQ.Services.Vault;
 
 namespace EasySynQ.Services.Documents;
 
@@ -29,6 +30,10 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
     private const string SignedEntityTypeDocument = nameof(Document);
     private const string SignedEntityTypeDocumentRevision = nameof(DocumentRevision);
 
+    private const string InitialRevisionLabel = "Rev A";
+    private const string PdfMimeType = "application/pdf";
+    private const string PdfFileExtension = ".pdf";
+
     private readonly IDocumentRepository _documents;
     private readonly IDocumentRevisionRepository _revisions;
     private readonly IDocumentReviewAssignmentRepository _assignments;
@@ -37,6 +42,7 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
     private readonly ICurrentUserAccessor _currentUser;
     private readonly IClock _clock;
     private readonly IUnitOfWork _unitOfWork;
+    private readonly IVaultService _vault;
 
     /// <summary>Constructs the service over its dependencies.</summary>
     public DocumentLifecycleService(
@@ -47,7 +53,8 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
         IDomainEventDispatcher eventDispatcher,
         ICurrentUserAccessor currentUser,
         IClock clock,
-        IUnitOfWork unitOfWork)
+        IUnitOfWork unitOfWork,
+        IVaultService vault)
     {
         ArgumentNullException.ThrowIfNull(documents);
         ArgumentNullException.ThrowIfNull(revisions);
@@ -57,6 +64,7 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
         ArgumentNullException.ThrowIfNull(currentUser);
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(unitOfWork);
+        ArgumentNullException.ThrowIfNull(vault);
 
         _documents = documents;
         _revisions = revisions;
@@ -66,6 +74,7 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
         _currentUser = currentUser;
         _clock = clock;
         _unitOfWork = unitOfWork;
+        _vault = vault;
     }
 
     /// <inheritdoc />
@@ -348,4 +357,184 @@ public sealed class DocumentLifecycleService : IDocumentLifecycleService
 
     private static string BuildRetirePayload(Guid documentId, DateTime retiredAtUtc) =>
         $"Document:{documentId:D}:Retire:{retiredAtUtc.ToString("O", CultureInfo.InvariantCulture)}";
+
+    /// <inheritdoc />
+    public async Task<Document> CreateDocumentAsync(
+        string number,
+        string title,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(number);
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+
+        var actorId = RequireAuthenticatedUser();
+        RequirePermission(PermissionNames.DocumentCreate);
+
+        var document = new Document(Guid.NewGuid(), number, title);
+        var revision = new DocumentRevision(
+            id: Guid.NewGuid(),
+            documentId: document.Id,
+            revisionLabel: InitialRevisionLabel,
+            authorUserId: actorId);
+
+        await _documents.AddAsync(document, cancellationToken);
+        await _revisions.AddAsync(revision, cancellationToken);
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return document;
+    }
+
+    /// <inheritdoc />
+    public async Task<DocumentRevision> AttachPdfToDraftAsync(
+        Guid documentRevisionId,
+        Stream pdfContent,
+        string originalFileName,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(pdfContent);
+        ArgumentException.ThrowIfNullOrWhiteSpace(originalFileName);
+
+        _ = RequireAuthenticatedUser();
+        RequirePermission(PermissionNames.DocumentEditDraft);
+
+        var revision = await _revisions.GetByIdAsync(documentRevisionId, cancellationToken)
+            ?? throw new KeyNotFoundException(
+                $"DocumentRevision {documentRevisionId} not found (no row, or row is soft-deleted).");
+
+        if (revision.Lifecycle != DocumentLifecycle.Draft)
+        {
+            throw new InvalidOperationException(
+                $"Cannot attach PDF to revision {documentRevisionId}: current state is " +
+                $"'{revision.Lifecycle}', expected '{nameof(DocumentLifecycle.Draft)}'.");
+        }
+
+        // VaultService.StoreAsync writes the blob row + on-disk file in
+        // its own SaveChanges (or dedupes against an existing blob row
+        // without writing). Either way, the returned VaultBlob is
+        // already persisted; the subsequent revision update writes its
+        // own audit row in a second SaveChanges below.
+        //
+        // The audit-row count for the lifecycle-service operation
+        // (revision update only) is therefore:
+        //   - fresh content: 2 (VaultBlob Insert from StoreAsync's own
+        //     SaveChanges + DocumentRevision Update here).
+        //   - dedup hit: 1 (DocumentRevision Update here; StoreAsync
+        //     returned an existing row without writing).
+        // CorrelationIds across the two SaveChanges differ — they are
+        // two transactions, not one. This matches the C6a plan's
+        // explicit two-transactions decision ("the create transaction's
+        // audit row is meaningful even if the upload fails; the
+        // upload's atomicity is its own"), with the same rationale
+        // applied to attach: the vault write's atomicity is its own.
+        var blob = await _vault.StoreAsync(
+            pdfContent,
+            PdfMimeType,
+            originalFileName,
+            PdfFileExtension,
+            cancellationToken);
+
+        revision.AttachVaultBlob(blob.Id);
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return revision;
+    }
+
+    /// <inheritdoc />
+    public async Task<Document> EditDraftMetadataAsync(
+        Guid documentId,
+        string newNumber,
+        string newTitle,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(newNumber);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newTitle);
+
+        _ = RequireAuthenticatedUser();
+        RequirePermission(PermissionNames.DocumentEditDraft);
+
+        var document = await _documents.GetByIdAsync(documentId, cancellationToken)
+            ?? throw new KeyNotFoundException(
+                $"Document {documentId} not found (no row, or row is soft-deleted).");
+
+        if (document.RetiredAtUtc is not null)
+        {
+            throw new InvalidOperationException(
+                $"Cannot edit metadata on retired document {documentId}.");
+        }
+
+        var latest = await _revisions.GetLatestRevisionAsync(documentId, cancellationToken)
+            ?? throw new InvalidOperationException(
+                $"Cannot edit metadata on document {documentId}: the document has no revisions.");
+
+        if (latest.Lifecycle != DocumentLifecycle.Draft)
+        {
+            throw new InvalidOperationException(
+                $"Cannot edit metadata on document {documentId}: latest revision " +
+                $"{latest.Id} is in '{latest.Lifecycle}' state, expected " +
+                $"'{nameof(DocumentLifecycle.Draft)}'.");
+        }
+
+        document.EditMetadata(newNumber, newTitle);
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return document;
+    }
+
+    /// <inheritdoc />
+    public async Task HardDeleteDraftAsync(Guid documentId, CancellationToken cancellationToken)
+    {
+        var actorId = RequireAuthenticatedUser();
+        RequirePermission(PermissionNames.DocumentHardDelete);
+
+        var document = await _documents.GetByIdAsync(documentId, cancellationToken)
+            ?? throw new KeyNotFoundException(
+                $"Document {documentId} not found (no row, or row is soft-deleted).");
+
+        var revisions = await _revisions.GetByDocumentIdAsync(documentId, cancellationToken);
+
+        // Defensive multi-revision guard. Documents with multiple
+        // revisions have at least one signed revision (only the first
+        // revision can be Draft-without-history; subsequent revisions
+        // arrive via the not-yet-implemented "new revision" flow which
+        // always signs). Hard-deleting any revision past Draft is a
+        // SPEC §3.5 violation; refusing on count is the simplest safe
+        // guard for C6a's actual scope.
+        if (revisions.Count != 1)
+        {
+            throw new InvalidOperationException(
+                $"Cannot hard-delete document {documentId}: expected exactly 1 revision, " +
+                $"found {revisions.Count}. Hard-delete is only supported for " +
+                $"single-revision Drafts in C6a scope.");
+        }
+
+        var revision = revisions[0];
+
+        if (revision.Lifecycle != DocumentLifecycle.Draft)
+        {
+            throw new InvalidOperationException(
+                $"Cannot hard-delete document {documentId}: revision " +
+                $"{revision.Id} is in '{revision.Lifecycle}' state, expected " +
+                $"'{nameof(DocumentLifecycle.Draft)}'.");
+        }
+
+        if (revision.AuthorUserId != actorId)
+        {
+            throw new InvalidOperationException(
+                $"Cannot hard-delete document {documentId}: current user {actorId} is not " +
+                $"the author of revision {revision.Id} (author is {revision.AuthorUserId}).");
+        }
+
+        // Two HardDelete-action audit rows are written by the audit
+        // interceptor per ADR 0002 — one for the Document, one for the
+        // DocumentRevision — both sharing one CorrelationId via the
+        // per-save fallback. The pre-delete JSON snapshot of each
+        // entity is captured in the audit row's "before" field.
+        _revisions.HardDelete(revision);
+        _documents.HardDelete(document);
+
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+    }
 }

@@ -321,4 +321,37 @@ public class DocumentRevision : SignableEntity
 
         Lifecycle = DocumentLifecycle.Archived;
     }
+
+    /// <summary>
+    /// Attaches (or replaces) the <see cref="VaultBlobId"/> reference
+    /// (ADR 0008 C6a). Allowed only while the revision is in
+    /// <see cref="DocumentLifecycle.Draft"/>; once submitted, the
+    /// attached content is bound to the author's signature payload and
+    /// may not be changed. Replacement overwrites the prior id; the
+    /// orphaned vault blob remains in the vault per the C6a
+    /// "deferred indefinitely" cleanup decision.
+    /// </summary>
+    /// <param name="vaultBlobId">Identifier of the
+    /// <c>VaultBlob</c> backing this revision's content. Must not be
+    /// <see cref="Guid.Empty"/>.</param>
+    /// <exception cref="InvalidOperationException">Thrown when the
+    /// revision is not in <see cref="DocumentLifecycle.Draft"/>.</exception>
+    /// <exception cref="ArgumentException">Thrown when
+    /// <paramref name="vaultBlobId"/> is <see cref="Guid.Empty"/>.</exception>
+    public void AttachVaultBlob(Guid vaultBlobId)
+    {
+        if (Lifecycle != DocumentLifecycle.Draft)
+        {
+            throw new InvalidOperationException(
+                $"Cannot attach a vault blob to revision {Id}: current state is '{Lifecycle}', expected '{nameof(DocumentLifecycle.Draft)}'.");
+        }
+        if (vaultBlobId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "VaultBlobId must not be Guid.Empty.",
+                nameof(vaultBlobId));
+        }
+
+        VaultBlobId = vaultBlobId;
+    }
 }

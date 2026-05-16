@@ -7,6 +7,7 @@ using System.Windows.Threading;
 
 using EasySynQ.Data.Context;
 using EasySynQ.Data.Extensions;
+using EasySynQ.Domain.Entities.Documents;
 using EasySynQ.Services.Abstractions;
 using EasySynQ.Services.Audit;
 using EasySynQ.Services.Bootstrap;
@@ -14,6 +15,11 @@ using EasySynQ.Services.Identity;
 using EasySynQ.Services.Time;
 using EasySynQ.UI.Audit;
 using EasySynQ.UI.Bootstrap;
+using EasySynQ.UI.Documents;
+using EasySynQ.UI.Documents.CreateDocument;
+using EasySynQ.UI.Documents.Detail;
+using EasySynQ.UI.Documents.EditMetadata;
+using EasySynQ.UI.Documents.List;
 using EasySynQ.UI.Identity;
 using EasySynQ.UI.Login;
 using EasySynQ.UI.Navigation;
@@ -294,6 +300,7 @@ public partial class App : Application
         services.AddTransient<BootstrapWindow>();
 
         services.AddSingleton<PulseDrawerViewModel>();
+        services.AddSingleton<NavigationContentFactory>();
         services.AddSingleton<MainShellViewModel>();
         services.AddSingleton<MainWindow>();
 
@@ -303,6 +310,33 @@ public partial class App : Application
         // DI-registered. Singleton because the prompter is stateless
         // and composes with the singleton role-resolution service.
         services.AddSingleton<ISignatureRolePrompter, SignatureRolePrompter>();
+
+        // ADR 0008 C6a — Document Controller UI wiring.
+        //
+        // File picker abstraction over Microsoft.Win32.OpenFileDialog.
+        // Stateless wrapper; singleton.
+        services.AddSingleton<IFilePicker, WpfFilePicker>();
+
+        // Modal prompters mirror the SignatureRolePrompter pattern —
+        // singletons that construct fresh Windows per call (Windows
+        // are single-ShowDialog) and translate dialog results into
+        // nullable record returns.
+        services.AddSingleton<ICreateDocumentPrompter, CreateDocumentPrompter>();
+        services.AddSingleton<IEditMetadataPrompter, EditMetadataPrompter>();
+
+        // List view model — transient so navigating to the documents
+        // entry produces a fresh VM each time (the factory is
+        // re-invoked on every NavigationContentFactory.CreateContentFor
+        // call). Detail VM construction is parameterized by Document
+        // and goes through the factory delegate below.
+        services.AddTransient<DocumentListViewModel>();
+
+        // Detail view model factory delegate — Func<Document, VM>
+        // resolved by the list VM. ActivatorUtilities populates the
+        // remaining constructor parameters from the scoped provider;
+        // the Document parameter is supplied at call time.
+        services.AddSingleton<Func<Document, DocumentDetailViewModel>>(
+            sp => doc => ActivatorUtilities.CreateInstance<DocumentDetailViewModel>(sp, doc));
     }
 
     /// <summary>

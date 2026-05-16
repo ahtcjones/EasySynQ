@@ -7,12 +7,13 @@ using Xunit;
 namespace EasySynQ.Tests.Unit.UI.Documents.Controls;
 
 /// <summary>
-/// Unit tests for <see cref="PdfViewerControl"/> (ADR 0010 C5).
-/// Pinned to the dependency-property surface and event-args shape;
-/// the actual WebView2 instance is not constructed (would require
-/// a Win32 host window — see ADR 0010 §"For testing"). Real viewer
-/// behavior is verified in C6's smoke when the document detail view
-/// hosts the control.
+/// Unit tests for <see cref="PdfViewerControl"/> (ADR 0010 C5,
+/// amended 2026-05-16 for virtual host mapping). Pinned to the
+/// dependency-property surface, event-args shape, and the static URL
+/// helpers; the actual WebView2 instance is not constructed (would
+/// require a Win32 host window — see ADR 0010 §"For testing"). Real
+/// viewer behavior is verified in C6's smoke when the document
+/// detail view hosts the control.
 /// </summary>
 public class PdfViewerControlTests
 {
@@ -62,34 +63,97 @@ public class PdfViewerControlTests
         act.Should().Throw<ArgumentException>();
     }
 
+    // ─── BuildViewerUrl ────────────────────────────────────────────
+
     [Fact]
-    public void BuildViewerUrl_EncodesPdfPathAsFileUriQueryParameter()
+    public void BuildViewerUrl_WrapsContentUrlInViewerHostQueryParameter()
     {
-        // Internal helper exposed via InternalsVisibleTo; pin the URL
-        // shape so accidental drift in the encoding logic surfaces in
-        // tests rather than at runtime against the bundled viewer.
-        var viewer = @"C:\App\Assets\pdfviewer\web\viewer.html";
-        var pdf = @"C:\App\vault\ab\abcdef.pdf";
+        // Post-amendment shape: the viewer host is a constant
+        // (easysynq-pdfviewer.local) and the viewer asset path
+        // includes the /web/ subdirectory because the viewer-host
+        // mapping scopes at PDF.js's distribution PARENT (not at
+        // web/) so viewer.mjs's sibling-path imports of ../build/
+        // resolve correctly. See ADR 0010 amendment §"Viewer-host
+        // scope refinement (smoke walk #3)".
+        var contentUrl = "https://easysynq-pdfcontent.local/2a/abcdef.pdf";
 
-        var url = PdfViewerControl.BuildViewerUrl(viewer, pdf);
+        var url = PdfViewerControl.BuildViewerUrl(contentUrl);
 
-        url.Should().StartWith("file:///C:/App/Assets/pdfviewer/web/viewer.html?file=");
-        // The PDF file URI is itself URI-encoded so it survives as
-        // a single query-string value (the path's slashes become
-        // %2F, the colon becomes %3A, etc.).
-        url.Should().Contain("file%3A%2F%2F%2FC%3A%2FApp%2Fvault%2Fab%2Fabcdef.pdf");
+        url.Should().StartWith("https://easysynq-pdfviewer.local/web/viewer.html?file=");
+        // The content URL is URL-encoded so it survives as a single
+        // query-string value (the path's slashes become %2F, the
+        // colon becomes %3A, etc.).
+        url.Should().Contain("https%3A%2F%2Feasysynq-pdfcontent.local%2F2a%2Fabcdef.pdf");
     }
 
     [Fact]
-    public void BuildViewerUrl_HandlesSpacesInPath()
+    public void BuildViewerUrl_HandlesContentUrlWithEncodedCharacters()
     {
-        var viewer = @"C:\App With Space\viewer.html";
-        var pdf = @"C:\vault\ab\abcdef.pdf";
+        // Round-trip safety: even a URL that already contains %20
+        // (encoded space) etc. should survive intact under
+        // EscapeDataString.
+        var contentUrl = "https://easysynq-pdfcontent.local/some%20folder/file.pdf";
 
-        var url = PdfViewerControl.BuildViewerUrl(viewer, pdf);
+        var url = PdfViewerControl.BuildViewerUrl(contentUrl);
 
-        // Spaces in the viewer path become %20 in the file:// URI.
-        url.Should().Contain("App%20With%20Space");
-        url.Should().Contain("?file=");
+        // %20 in input → %2520 in output (the % itself becomes %25).
+        url.Should().Contain("some%2520folder");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void BuildViewerUrl_RejectsNullOrEmptyContentUrl(string? contentUrl)
+    {
+        Action act = () => PdfViewerControl.BuildViewerUrl(contentUrl!);
+        act.Should().Throw<ArgumentException>();
+    }
+
+    // ─── BuildContentUrl ───────────────────────────────────────────
+
+    [Fact]
+    public void BuildContentUrl_TranslatesAbsolutePathToVirtualHostUrl()
+    {
+        var contentRoot = @"C:\Users\Dev-CoJo\AppData\Local\EasySynQ\vault";
+        var filePath = @"C:\Users\Dev-CoJo\AppData\Local\EasySynQ\vault\2a\abcdef.pdf";
+
+        var url = PdfViewerControl.BuildContentUrl(filePath, contentRoot);
+
+        url.Should().Be("https://easysynq-pdfcontent.local/2a/abcdef.pdf");
+    }
+
+    [Fact]
+    public void BuildContentUrl_ConvertsBackslashesToForwardSlashes()
+    {
+        // Windows file paths use '\'; the URL must use '/' regardless
+        // of host OS.
+        var contentRoot = @"C:\vault";
+        var filePath = @"C:\vault\ab\cd\file.pdf";
+
+        var url = PdfViewerControl.BuildContentUrl(filePath, contentRoot);
+
+        url.Should().Be("https://easysynq-pdfcontent.local/ab/cd/file.pdf");
+    }
+
+    [Fact]
+    public void BuildContentUrl_FlatFileUnderRoot_NoSubdirectory()
+    {
+        var contentRoot = @"C:\vault";
+        var filePath = @"C:\vault\file.pdf";
+
+        var url = PdfViewerControl.BuildContentUrl(filePath, contentRoot);
+
+        url.Should().Be("https://easysynq-pdfcontent.local/file.pdf");
+    }
+
+    [Theory]
+    [InlineData(null, @"C:\vault")]
+    [InlineData("", @"C:\vault")]
+    [InlineData(@"C:\vault\file.pdf", null)]
+    [InlineData(@"C:\vault\file.pdf", "")]
+    public void BuildContentUrl_RejectsNullOrEmptyArgs(string? filePath, string? contentRoot)
+    {
+        Action act = () => PdfViewerControl.BuildContentUrl(filePath!, contentRoot!);
+        act.Should().Throw<ArgumentException>();
     }
 }

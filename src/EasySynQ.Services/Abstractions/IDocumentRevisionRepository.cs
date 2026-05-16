@@ -68,4 +68,35 @@ public interface IDocumentRevisionRepository : IRepository<DocumentRevision, Gui
         Guid documentId,
         DateTime asOfUtc,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns the most recently-created revision of
+    /// <paramref name="documentId"/> regardless of lifecycle state, or
+    /// <see langword="null"/> if the document has no revisions. Backs
+    /// the C6a Document detail view, which displays whatever revision
+    /// currently represents the document (Draft for newly-authored
+    /// documents; Approved-but-not-yet-effective during the gap window;
+    /// Active otherwise). Ordering is by <c>CreatedUtc</c> descending.
+    /// </summary>
+    /// <param name="documentId">Parent document id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The latest revision, or <see langword="null"/>.</returns>
+    Task<DocumentRevision?> GetLatestRevisionAsync(
+        Guid documentId,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns every revision of <paramref name="documentId"/>
+    /// regardless of lifecycle state, ordered by <c>CreatedUtc</c>
+    /// ascending. Used by the C6a hard-delete-draft path as a
+    /// defensive single-revision check (a Document with multiple
+    /// revisions has at least one signed revision and is therefore
+    /// outside the SPEC §3.5 hard-delete boundary).
+    /// </summary>
+    /// <param name="documentId">Parent document id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>All revisions for the document.</returns>
+    Task<IReadOnlyList<DocumentRevision>> GetByDocumentIdAsync(
+        Guid documentId,
+        CancellationToken cancellationToken);
 }

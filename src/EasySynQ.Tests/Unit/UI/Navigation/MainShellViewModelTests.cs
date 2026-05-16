@@ -5,6 +5,7 @@ using EasySynQ.UI.Navigation;
 using EasySynQ.UI.Placeholders;
 using EasySynQ.UI.Pulse;
 
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -14,6 +15,28 @@ using Xunit;
 
 namespace EasySynQ.Tests.Unit.UI.Navigation;
 
+/// <summary>
+/// Tests for <see cref="MainShellViewModel"/>'s navigation flow.
+/// </summary>
+/// <remarks>
+/// <b>Test target choice: governance.risk as the DI-free placeholder.</b>
+/// Several test cases below pick <c>"governance.risk"</c> as the
+/// navigation target — chosen because it is a not-yet-shipped item
+/// that still resolves to <see cref="ComingSoonViewModel"/> through
+/// the factory's default branch, requiring no DI graph. The
+/// <c>"governance.documents"</c> item now resolves to
+/// <c>DocumentListViewModel</c> via DI (Phase 2 C6a) which the
+/// <c>BuildSut()</c> empty-provider harness cannot satisfy.
+/// <para>
+/// When Phase 3 (Risk Register) ships and wires
+/// <c>governance.risk</c> through DI in the same shape, these tests
+/// will need to retarget again — pick the next still-pending
+/// placeholder item (likely <c>governance.competency</c> or
+/// <c>governance.audits</c>). Or, if all governance items are by
+/// then DI-backed, switch the harness to a fuller DI container so the
+/// tests don't need a hand-picked placeholder.
+/// </para>
+/// </remarks>
 public class MainShellViewModelTests
 {
     private readonly Mock<ILogger<MainShellViewModel>> _logger = new();
@@ -32,7 +55,16 @@ public class MainShellViewModelTests
         // unauthenticated (empty strings, empty collections per
         // ADR 0007); tests that care about the user-chip bindings
         // populate it explicitly via the protected field.
-        return new MainShellViewModel(_logger.Object, NewDrawer(), _currentUser);
+        //
+        // The factory takes an empty-ish IServiceProvider — these
+        // tests navigate only to pulse.dashboard (which constructs
+        // its VM with no DI) or to placeholder items (which produce
+        // ComingSoonViewModel). The factory's governance.documents
+        // branch is exercised by NavigationContentFactoryTests, not
+        // here.
+        var emptyProvider = new ServiceCollection().BuildServiceProvider();
+        var factory = new NavigationContentFactory(emptyProvider);
+        return new MainShellViewModel(_logger.Object, NewDrawer(), _currentUser, factory);
     }
 
     [Fact]
@@ -127,7 +159,12 @@ public class MainShellViewModelTests
             ConfirmDiscardHandler = _ => Task.FromResult(true),
         };
         sut.SetCurrentContentForTesting(dirty);
-        var target = NavigationCatalog.AllItems[1];
+        // Target a placeholder item — governance.documents would
+        // resolve to DocumentListViewModel via the factory, which the
+        // empty-provider BuildSut harness cannot satisfy. Any
+        // not-yet-shipped item (still ComingSoonViewModel-backed)
+        // works.
+        var target = NavigationCatalog.AllItems.Single(i => i.Id == "governance.risk");
 
         var cancelledCalls = 0;
         sut.NavigationCancelled += (_, _) => cancelledCalls++;
@@ -174,7 +211,7 @@ public class MainShellViewModelTests
         var expected = new (string Id, NavigationSection Section, int Phase, bool Available)[]
         {
             ("pulse.dashboard",              NavigationSection.Pulse,      1, true),
-            ("governance.documents",         NavigationSection.Governance, 2, false),
+            ("governance.documents",         NavigationSection.Governance, 2, true),
             ("governance.risk",              NavigationSection.Governance, 3, false),
             ("governance.competency",        NavigationSection.Governance, 4, false),
             ("governance.audits",            NavigationSection.Governance, 9, false),
@@ -203,10 +240,23 @@ public class MainShellViewModelTests
     }
 
     [Fact]
-    public void NavigationCatalog_AllNonPulseItems_AreNotAvailable()
+    public void NavigationCatalog_PendingPhaseItems_AreNotAvailable()
     {
-        var nonPulse = NavigationCatalog.AllItems.Where(i => i.Id != "pulse.dashboard");
-        nonPulse.Should().AllSatisfy(i => i.IsAvailable.Should().BeFalse());
+        // Pulse Dashboard ships in Phase 1; Documents ships in Phase 2
+        // (C6a). Every other entry remains unavailable until its
+        // owning phase lands. Update this exclusion list as each phase
+        // flips its catalog row to IsAvailable=true.
+        var availableIds = new[] { "pulse.dashboard", "governance.documents" };
+        var pending = NavigationCatalog.AllItems
+            .Where(i => !availableIds.Contains(i.Id));
+        pending.Should().AllSatisfy(i => i.IsAvailable.Should().BeFalse());
+    }
+
+    [Fact]
+    public void NavigationCatalog_GovernanceDocuments_IsAvailable()
+    {
+        var documents = NavigationCatalog.AllItems.Single(i => i.Id == "governance.documents");
+        documents.IsAvailable.Should().BeTrue();
     }
 
     [Fact]
@@ -219,11 +269,15 @@ public class MainShellViewModelTests
             NavigationCatalog.AllItems.Single(i => i.Id == "pulse.dashboard"));
         sut.CurrentContent.Should().BeOfType<PulseDashboardViewModel>();
 
-        // Any other entry → ComingSoonViewModel carrying that item's data.
-        var documents = NavigationCatalog.AllItems.Single(i => i.Id == "governance.documents");
-        await sut.NavigateToCommand.ExecuteAsync(documents);
+        // Any other not-yet-shipped entry → ComingSoonViewModel
+        // carrying that item's data. governance.documents now resolves
+        // to DocumentListViewModel via the factory (covered by
+        // NavigationContentFactoryTests); pick a still-pending item
+        // here so the BuildSut empty-provider harness suffices.
+        var risk = NavigationCatalog.AllItems.Single(i => i.Id == "governance.risk");
+        await sut.NavigateToCommand.ExecuteAsync(risk);
         var coming = sut.CurrentContent.Should().BeOfType<ComingSoonViewModel>().Subject;
-        coming.DisplayName.Should().Be(documents.DisplayName);
+        coming.DisplayName.Should().Be(risk.DisplayName);
     }
 
     [Fact]
@@ -237,7 +291,11 @@ public class MainShellViewModelTests
         };
         sut.SetCurrentContentForTesting(dirty);
 
-        var target = NavigationCatalog.AllItems.Single(i => i.Id == "governance.documents");
+        // Any not-yet-shipped item — the rejected-nav path does not
+        // hit the factory (it short-circuits on the dirty-state
+        // refusal), but using a placeholder item keeps this test
+        // resilient if the short-circuit's order ever changes.
+        var target = NavigationCatalog.AllItems.Single(i => i.Id == "governance.risk");
         await sut.NavigateToCommand.ExecuteAsync(target);
 
         sut.CurrentContent.Should().BeSameAs(dirty,

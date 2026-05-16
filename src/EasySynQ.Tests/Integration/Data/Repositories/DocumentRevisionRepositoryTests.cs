@@ -292,4 +292,172 @@ public class DocumentRevisionRepositoryTests : ServiceIntegrationTestBase
         afterEffective.Should().NotBeNull();
         afterEffective!.Id.Should().Be(revB.Id);
     }
+
+    // ─── GetLatestRevisionAsync (C6a) ───────────────────────────────
+
+    private static async Task<DocumentRevision?> LatestAsync(
+        AsyncServiceScope scope,
+        Guid documentId,
+        CancellationToken ct)
+    {
+        var repo = scope.ServiceProvider
+            .GetRequiredService<EasySynQ.Services.Abstractions.IDocumentRevisionRepository>();
+        return await repo.GetLatestRevisionAsync(documentId, ct);
+    }
+
+    [Fact]
+    public async Task GetLatestRevision_NoRevisions_ReturnsNullAsync()
+    {
+        var documentId = Guid.NewGuid();
+        await using (var ctx = NewContext())
+        {
+            // Insert the parent document so the resolver runs against a
+            // real row; the answer should still be null with no
+            // revisions present.
+            CurrentUser.UserId = Guid.NewGuid();
+            CurrentUser.Username = "tester";
+            CurrentUser.Roles = ["TestRole"];
+            ctx.Documents.Add(new Document(documentId, "DOC-EMPTY-A", "Empty"));
+            await ctx.SaveChangesAsync(Ct);
+        }
+
+        await using var scope = NewScope();
+        var result = await LatestAsync(scope, documentId, Ct);
+        result.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task GetLatestRevision_SingleDraft_ReturnsItAsync()
+    {
+        var documentId = Guid.NewGuid();
+        var draft = NewRevision(documentId, "Rev A", DocumentLifecycle.Draft, null, null);
+        await using (var ctx = NewContext())
+        {
+            await PersistAsync(ctx, draft);
+        }
+
+        await using var scope = NewScope();
+        var result = await LatestAsync(scope, documentId, Ct);
+
+        result.Should().NotBeNull();
+        result!.Id.Should().Be(draft.Id);
+        result.Lifecycle.Should().Be(DocumentLifecycle.Draft);
+    }
+
+    [Fact]
+    public async Task GetLatestRevision_ReturnsMostRecentRegardlessOfLifecycleAsync()
+    {
+        // Plant Rev A (Superseded, earlier CreatedUtc) and Rev B
+        // (Approved, later CreatedUtc). GetLatestRevisionAsync should
+        // return Rev B because it was created later, even though both
+        // are non-Draft states.
+        var documentId = Guid.NewGuid();
+        var approvedA = new DateTime(2026, 1, 15, 10, 0, 0, DateTimeKind.Utc);
+        var approvedB = new DateTime(2026, 3, 20, 10, 0, 0, DateTimeKind.Utc);
+        var revA = NewRevision(documentId, "Rev A", DocumentLifecycle.Superseded, approvedA, null);
+        var revB = NewRevision(documentId, "Rev B", DocumentLifecycle.Approved, approvedB, null);
+
+        // Persist Rev A first (earlier CreatedUtc), then advance the
+        // clock and persist Rev B (later CreatedUtc).
+        Clock.UtcNow = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        await using (var ctx = NewContext())
+        {
+            await PersistAsync(ctx, revA);
+        }
+        Clock.UtcNow = new DateTime(2026, 3, 1, 0, 0, 0, DateTimeKind.Utc);
+        await using (var ctx = NewContext())
+        {
+            await PersistAsync(ctx, revB);
+        }
+
+        await using var scope = NewScope();
+        var result = await LatestAsync(scope, documentId, Ct);
+
+        result.Should().NotBeNull();
+        result!.Id.Should().Be(revB.Id);
+    }
+
+    [Fact]
+    public async Task GetLatestRevision_GuidEmpty_ThrowsArgumentExceptionAsync()
+    {
+        await using var scope = NewScope();
+        var repo = scope.ServiceProvider
+            .GetRequiredService<EasySynQ.Services.Abstractions.IDocumentRevisionRepository>();
+
+        Func<Task> act = async () => await repo.GetLatestRevisionAsync(Guid.Empty, Ct);
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
+
+    // ─── GetByDocumentIdAsync (C6a) ─────────────────────────────────
+
+    [Fact]
+    public async Task GetByDocumentId_NoRevisions_ReturnsEmptyAsync()
+    {
+        var documentId = Guid.NewGuid();
+        await using var scope = NewScope();
+        var repo = scope.ServiceProvider
+            .GetRequiredService<EasySynQ.Services.Abstractions.IDocumentRevisionRepository>();
+        var result = await repo.GetByDocumentIdAsync(documentId, Ct);
+        result.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetByDocumentId_TwoRevisions_ReturnsBothOrderedByCreatedAsync()
+    {
+        var documentId = Guid.NewGuid();
+        var revA = NewRevision(documentId, "Rev A", DocumentLifecycle.Draft, null, null);
+        var revB = NewRevision(documentId, "Rev B", DocumentLifecycle.Draft, null, null);
+
+        Clock.UtcNow = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        await using (var ctx = NewContext())
+        {
+            await PersistAsync(ctx, revA);
+        }
+        Clock.UtcNow = new DateTime(2026, 1, 2, 0, 0, 0, DateTimeKind.Utc);
+        await using (var ctx = NewContext())
+        {
+            await PersistAsync(ctx, revB);
+        }
+
+        await using var scope = NewScope();
+        var repo = scope.ServiceProvider
+            .GetRequiredService<EasySynQ.Services.Abstractions.IDocumentRevisionRepository>();
+        var result = await repo.GetByDocumentIdAsync(documentId, Ct);
+
+        result.Should().HaveCount(2);
+        result[0].Id.Should().Be(revA.Id);
+        result[1].Id.Should().Be(revB.Id);
+    }
+
+    [Fact]
+    public async Task GetByDocumentId_DoesNotReturnOtherDocumentsRevisionsAsync()
+    {
+        var docA = Guid.NewGuid();
+        var docB = Guid.NewGuid();
+        var revInA = NewRevision(docA, "Rev A", DocumentLifecycle.Draft, null, null);
+        var revInB = NewRevision(docB, "Rev A", DocumentLifecycle.Draft, null, null);
+
+        await using (var ctx = NewContext())
+        {
+            await PersistAsync(ctx, revInA, revInB);
+        }
+
+        await using var scope = NewScope();
+        var repo = scope.ServiceProvider
+            .GetRequiredService<EasySynQ.Services.Abstractions.IDocumentRevisionRepository>();
+        var result = await repo.GetByDocumentIdAsync(docA, Ct);
+
+        result.Should().ContainSingle().Which.Id.Should().Be(revInA.Id);
+    }
+
+    [Fact]
+    public async Task GetByDocumentId_GuidEmpty_ThrowsArgumentExceptionAsync()
+    {
+        await using var scope = NewScope();
+        var repo = scope.ServiceProvider
+            .GetRequiredService<EasySynQ.Services.Abstractions.IDocumentRevisionRepository>();
+
+        Func<Task> act = async () => await repo.GetByDocumentIdAsync(Guid.Empty, Ct);
+        await act.Should().ThrowAsync<ArgumentException>();
+    }
 }

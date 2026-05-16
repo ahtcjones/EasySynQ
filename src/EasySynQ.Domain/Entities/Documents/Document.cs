@@ -151,4 +151,26 @@ public class Document : AuditableEntity
         RetiredByUserId = retiredByUserId;
         RetirementSignatureId = retirementSignatureId;
     }
+
+    /// <summary>
+    /// Updates the document's <see cref="Number"/> and <see cref="Title"/>
+    /// (ADR 0008 C6a). The entity performs only input validation; the
+    /// service layer enforces the SPEC §3.5 boundary — metadata edits
+    /// are permitted only while the document's sole revision is in
+    /// <see cref="EasySynQ.Domain.Enums.DocumentLifecycle.Draft"/>.
+    /// </summary>
+    /// <param name="newNumber">Updated document number. Must not be
+    /// <see langword="null"/>, empty, or whitespace.</param>
+    /// <param name="newTitle">Updated document title. Must not be
+    /// <see langword="null"/>, empty, or whitespace.</param>
+    /// <exception cref="ArgumentException">Thrown when either input fails
+    /// validation.</exception>
+    public void EditMetadata(string newNumber, string newTitle)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(newNumber);
+        ArgumentException.ThrowIfNullOrWhiteSpace(newTitle);
+
+        Number = newNumber;
+        Title = newTitle;
+    }
 }

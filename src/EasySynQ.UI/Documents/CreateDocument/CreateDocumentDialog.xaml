@@ -1,0 +1,121 @@
+<Window x:Class="EasySynQ.UI.Documents.CreateDocument.CreateDocumentDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:cd="clr-namespace:EasySynQ.UI.Documents.CreateDocument"
+        mc:Ignorable="d"
+        Title="EasySynQ — New document"
+        Width="460"
+        Height="380"
+        ResizeMode="NoResize"
+        SizeToContent="Manual"
+        WindowStyle="SingleBorderWindow"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        d:DataContext="{d:DesignInstance Type=cd:CreateDocumentViewModel, IsDesignTimeCreatable=False}">
+
+    <!--
+        Layout strategy: single card centered in the window. Mirrors
+        SignAsRoleDialog visual language (card, brand radius, spacing
+        tokens). C6a's minimum-viable Create dialog — Number + Title
+        (both required) plus an optional initial PDF picker.
+    -->
+    <Grid>
+        <Border Background="{StaticResource BrushSurface}"
+                BorderBrush="{StaticResource BrushBorder}"
+                BorderThickness="1"
+                CornerRadius="12"
+                Width="400"
+                Padding="24"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center">
+            <StackPanel>
+
+                <!-- Title -->
+                <TextBlock Style="{StaticResource TextStyleHeading}"
+                           Text="New document"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,4" />
+
+                <!-- Subtitle -->
+                <TextBlock Style="{StaticResource TextStyleCaption}"
+                           Text="Number and title are required. PDF upload is optional."
+                           HorizontalAlignment="Center"
+                           TextWrapping="Wrap"
+                           Margin="0,0,0,16" />
+
+                <!-- Number -->
+                <TextBlock Style="{StaticResource TextStyleLabel}"
+                           Text="Number"
+                           Margin="0,0,0,4" />
+                <TextBox x:Name="NumberTextBox"
+                         Text="{Binding Number, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                         Margin="0,0,0,12"
+                         AutomationProperties.Name="Document number" />
+
+                <!-- Title -->
+                <TextBlock Style="{StaticResource TextStyleLabel}"
+                           Text="Title"
+                           Margin="0,0,0,4" />
+                <TextBox x:Name="TitleTextBox"
+                         Text="{Binding Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                         Margin="0,0,0,16"
+                         AutomationProperties.Name="Document title" />
+
+                <!-- PDF picker row -->
+                <TextBlock Style="{StaticResource TextStyleLabel}"
+                           Text="Initial PDF (optional)"
+                           Margin="0,0,0,4" />
+                <Grid Margin="0,0,0,20">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="0"
+                            Background="{StaticResource BrushSurface2}"
+                            BorderBrush="{StaticResource BrushBorder}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="8,6,8,6"
+                            VerticalAlignment="Center">
+                        <TextBlock Text="{Binding SelectedPdfPath, TargetNullValue='(no file picked)'}"
+                                   Style="{StaticResource TextStyleMonoSmall}"
+                                   Foreground="{StaticResource BrushTextDim}"
+                                   TextTrimming="CharacterEllipsis"
+                                   AutomationProperties.Name="Selected PDF path" />
+                    </Border>
+                    <Button Grid.Column="1"
+                            Content="Browse…"
+                            Command="{Binding PickPdfCommand}"
+                            Width="80"
+                            Height="30"
+                            Margin="8,0,0,0"
+                            AutomationProperties.Name="Pick PDF file" />
+                </Grid>
+
+                <!-- Action row: Cancel + OK -->
+                <StackPanel Orientation="Horizontal"
+                            HorizontalAlignment="Right">
+                    <Button x:Name="CancelButton"
+                            Content="Cancel"
+                            Command="{Binding CancelCommand}"
+                            IsCancel="True"
+                            Width="88"
+                            Height="32"
+                            Margin="0,0,8,0"
+                            AutomationProperties.Name="Cancel" />
+                    <Button x:Name="OkButton"
+                            Style="{StaticResource ButtonPrimary}"
+                            Content="Create"
+                            Command="{Binding OkCommand}"
+                            IsDefault="True"
+                            Width="100"
+                            Height="32"
+                            AutomationProperties.Name="Create document" />
+                </StackPanel>
+
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

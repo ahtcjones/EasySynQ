@@ -165,4 +165,188 @@ public interface IDocumentLifecycleService
     /// <paramref name="signingAsRole"/> is not a role the user
     /// holds.</exception>
     Task RetireAsync(Guid documentId, string signingAsRole, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Creates a new internal <see cref="Document"/> with its first
+    /// <see cref="DocumentRevision"/> in <c>Draft</c> state (ADR 0008
+    /// C6a). Atomic in one <c>SaveChanges</c>: writes the
+    /// <c>Document</c> row and the initial Draft revision (with
+    /// hardcoded label <c>"Rev A"</c>, no <c>VaultBlobId</c>,
+    /// <c>AuthorUserId</c> set to the current user) in a single
+    /// transaction.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Authoring belongs to the lifecycle service.</b> Document
+    /// creation is a Draft-state operation; the service that owns
+    /// Draft-state lifecycle transitions also owns Draft creation. No
+    /// separate authoring service exists per the C6a plan.
+    /// </para>
+    /// <para>
+    /// <b>"Rev A" is a deliberate C6a default.</b> The revision label is
+    /// a free string per ADR 0008; user-selectable initial-label
+    /// affordance is polish that lands in a later commit.
+    /// </para>
+    /// <para>
+    /// <b>Audit-row count: 2.</b> Document Insert + DocumentRevision
+    /// Insert. Both rows share one CorrelationId via the per-save
+    /// fallback.
+    /// </para>
+    /// </remarks>
+    /// <param name="number">Org-assigned document number. Must not be
+    /// <see langword="null"/>, empty, or whitespace.</param>
+    /// <param name="title">Human-readable document title. Must not be
+    /// <see langword="null"/>, empty, or whitespace.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The persisted document.</returns>
+    /// <exception cref="EasySynQ.Services.Authorization.UnauthorizedOperationException">Thrown
+    /// when the current user lacks <c>Document.Create</c>.</exception>
+    /// <exception cref="System.ArgumentException">Thrown when
+    /// <paramref name="number"/> or <paramref name="title"/> fails
+    /// validation.</exception>
+    /// <exception cref="System.InvalidOperationException">Thrown when
+    /// no authenticated user is available.</exception>
+    Task<Document> CreateDocumentAsync(
+        string number,
+        string title,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Attaches (or replaces) the PDF content of a Draft revision
+    /// (ADR 0008 C6a). Calls
+    /// <see cref="EasySynQ.Services.Vault.IVaultService.StoreAsync"/>
+    /// to write content-addressed storage (dedupes on content hash),
+    /// then sets the revision's <c>VaultBlobId</c> to the returned
+    /// blob's id. Atomic in one <c>SaveChanges</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Replace-PDF reuses this method.</b> Calling on a revision
+    /// that already has a <c>VaultBlobId</c> overwrites the reference;
+    /// the orphaned blob remains in the vault per the C6a
+    /// "deferred indefinitely" cleanup decision (content-addressed
+    /// dedup means orphans don't bloat materially).
+    /// </para>
+    /// <para>
+    /// <b>Audit-row count.</b> Two on fresh content (VaultBlob Insert
+    /// from VaultService.StoreAsync's own SaveChanges + DocumentRevision
+    /// Update from this service's SaveChanges). One on dedup hit
+    /// (DocumentRevision Update only — VaultService returns the
+    /// existing blob row without inserting). The two SaveChanges
+    /// calls are independent transactions; in production each gets
+    /// its own per-save-fallback CorrelationId. The split is
+    /// deliberate per the C6a plan ("the upload's atomicity is its
+    /// own").
+    /// </para>
+    /// </remarks>
+    /// <param name="documentRevisionId">Revision to attach to. Must
+    /// be in <c>Draft</c>.</param>
+    /// <param name="pdfContent">PDF content stream. Read forward to
+    /// end by the vault; caller retains ownership.</param>
+    /// <param name="originalFileName">Display name for provenance.
+    /// Stored on the <c>VaultBlob</c>.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The updated revision in its post-attach state.</returns>
+    /// <exception cref="EasySynQ.Services.Authorization.UnauthorizedOperationException">Thrown
+    /// when the current user lacks <c>Document.EditDraft</c>.</exception>
+    /// <exception cref="System.Collections.Generic.KeyNotFoundException">Thrown
+    /// when no revision with the supplied id exists.</exception>
+    /// <exception cref="System.InvalidOperationException">Thrown when
+    /// no authenticated user is available, or the revision is not in
+    /// <c>Draft</c>.</exception>
+    /// <exception cref="System.ArgumentException">Thrown when
+    /// <paramref name="originalFileName"/> fails validation.</exception>
+    /// <exception cref="System.ArgumentNullException">Thrown when
+    /// <paramref name="pdfContent"/> is <see langword="null"/>.</exception>
+    Task<DocumentRevision> AttachPdfToDraftAsync(
+        Guid documentRevisionId,
+        Stream pdfContent,
+        string originalFileName,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Updates the <see cref="Document.Number"/> and
+    /// <see cref="Document.Title"/> of a Document whose latest revision
+    /// is in <c>Draft</c> (ADR 0008 C6a). Atomic in one
+    /// <c>SaveChanges</c>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why the latest-revision-Draft check.</b> Metadata edits per
+    /// SPEC §3.5 are permitted only on records that have not crossed
+    /// the immutability boundary. <see cref="Document"/> itself carries
+    /// no signature; the boundary is on its
+    /// <see cref="DocumentRevision"/>s. A document whose latest revision
+    /// is past Draft has already been signed (the author's submission
+    /// signature) and is therefore immutable-soft-delete-only. The
+    /// service loads the latest revision to verify the boundary
+    /// before permitting the edit.
+    /// </para>
+    /// <para>
+    /// <b>Audit-row count: 1.</b> Document Update. CorrelationId per
+    /// the per-save fallback.
+    /// </para>
+    /// </remarks>
+    /// <param name="documentId">Document to edit.</param>
+    /// <param name="newNumber">Updated document number. Must not be
+    /// <see langword="null"/>, empty, or whitespace.</param>
+    /// <param name="newTitle">Updated document title. Must not be
+    /// <see langword="null"/>, empty, or whitespace.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The updated document.</returns>
+    /// <exception cref="EasySynQ.Services.Authorization.UnauthorizedOperationException">Thrown
+    /// when the current user lacks <c>Document.EditDraft</c>.</exception>
+    /// <exception cref="System.Collections.Generic.KeyNotFoundException">Thrown
+    /// when no document with the supplied id exists.</exception>
+    /// <exception cref="System.InvalidOperationException">Thrown when
+    /// no authenticated user is available, the document is retired,
+    /// the document has no revisions, or the document's latest
+    /// revision is not in <c>Draft</c>.</exception>
+    /// <exception cref="System.ArgumentException">Thrown when
+    /// <paramref name="newNumber"/> or <paramref name="newTitle"/>
+    /// fails validation.</exception>
+    Task<Document> EditDraftMetadataAsync(
+        Guid documentId,
+        string newNumber,
+        string newTitle,
+        CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Hard-deletes a single-revision Draft <see cref="Document"/> and
+    /// its sole <see cref="DocumentRevision"/> in one transaction
+    /// (ADR 0008 C6a, SPEC §3.5, ADR 0002). The operational rows are
+    /// removed; the matching pair of <c>HardDelete</c>-action audit
+    /// rows is written and preserved in the append-only audit log.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Restricted to single-revision Drafts authored by the
+    /// caller.</b> The service requires:
+    /// </para>
+    /// <list type="bullet">
+    /// <item>the document has exactly one revision (multi-revision
+    /// documents have at least one signed revision and are outside
+    /// the hard-delete boundary);</item>
+    /// <item>that revision is in <c>Draft</c>;</item>
+    /// <item>that revision's <c>AuthorUserId</c> matches the current
+    /// user (the author-only rule from the C6a brief).</item>
+    /// </list>
+    /// <para>
+    /// <b>Audit-row count: 2.</b> Document HardDelete + DocumentRevision
+    /// HardDelete. Both rows share one CorrelationId via the per-save
+    /// fallback. Per ADR 0002, each carries the full pre-delete JSON
+    /// snapshot in the <c>before</c> field.
+    /// </para>
+    /// </remarks>
+    /// <param name="documentId">Document to hard-delete.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <exception cref="EasySynQ.Services.Authorization.UnauthorizedOperationException">Thrown
+    /// when the current user lacks <c>Document.HardDelete</c>.</exception>
+    /// <exception cref="System.Collections.Generic.KeyNotFoundException">Thrown
+    /// when no document with the supplied id exists.</exception>
+    /// <exception cref="System.InvalidOperationException">Thrown when
+    /// no authenticated user is available, the document has zero or
+    /// multiple revisions, the single revision is not in <c>Draft</c>,
+    /// or the current user is not the revision's author.</exception>
+    Task HardDeleteDraftAsync(Guid documentId, CancellationToken cancellationToken);
 }

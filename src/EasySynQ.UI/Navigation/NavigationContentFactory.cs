@@ -1,4 +1,7 @@
+using EasySynQ.UI.Documents.List;
 using EasySynQ.UI.Placeholders;
+
+using Microsoft.Extensions.DependencyInjection;
 
 namespace EasySynQ.UI.Navigation;
 
@@ -8,26 +11,42 @@ namespace EasySynQ.UI.Navigation;
 /// </summary>
 /// <remarks>
 /// <para>
-/// This is the place real module view models replace placeholders as
-/// their owning phases ship. When Phase 2 lands, the
-/// <c>"governance.documents"</c> branch swaps from
-/// <see cref="ComingSoonViewModel"/> to a real
-/// <c>DocumentsViewModel</c>; the rest stays unchanged. The shell
-/// view model has no module-specific knowledge — it asks the factory
-/// for the content and binds whatever it gets to
-/// <c>CurrentContent</c>.
+/// As of Phase 2 C6a, the factory is an instance class with an
+/// <see cref="IServiceProvider"/> dependency rather than a static
+/// method. The change is driven by real module view models that need
+/// dependency injection (<see cref="DocumentListViewModel"/> for
+/// <c>"governance.documents"</c>); the static-method shape worked
+/// only while every produced view model was constructible without
+/// services. The shell view model takes the factory as a constructor
+/// dependency and invokes <see cref="CreateContentFor"/> instead of
+/// the previous static call.
 /// </para>
 /// <para>
-/// Today the factory branches only on
-/// <c>"pulse.dashboard"</c> (returns
-/// <see cref="PulseDashboardViewModel"/>) versus everything else
-/// (returns <see cref="ComingSoonViewModel"/>). New branches land
-/// one-per-phase; <c>NavigationContentFactoryTests</c> pins the
-/// current behavior so a future regression is loud.
+/// The branching logic itself is unchanged: hard-coded mapping from
+/// <see cref="NavigationItem.Id"/> to view-model resolution. New
+/// branches land one-per-phase as module surfaces ship.
+/// <c>NavigationContentFactoryTests</c> pins the current behavior so
+/// a future regression is loud.
 /// </para>
 /// </remarks>
-public static class NavigationContentFactory
+public sealed class NavigationContentFactory
 {
+    private readonly IServiceProvider _serviceProvider;
+
+    /// <summary>
+    /// Constructs the factory over a DI service provider. Singleton
+    /// lifetime — the factory itself is stateless; it resolves a
+    /// fresh view model per <see cref="CreateContentFor"/> call from
+    /// the supplied provider.
+    /// </summary>
+    /// <param name="serviceProvider">DI service provider. Must not be
+    /// <see langword="null"/>.</param>
+    public NavigationContentFactory(IServiceProvider serviceProvider)
+    {
+        ArgumentNullException.ThrowIfNull(serviceProvider);
+        _serviceProvider = serviceProvider;
+    }
+
     /// <summary>
     /// Creates the content view model for <paramref name="item"/>.
     /// </summary>
@@ -36,13 +55,14 @@ public static class NavigationContentFactory
     /// <returns>The view model to render in the content area.</returns>
     /// <exception cref="ArgumentNullException">Thrown when
     /// <paramref name="item"/> is <see langword="null"/>.</exception>
-    public static object CreateContentFor(NavigationItem item)
+    public object CreateContentFor(NavigationItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
 
         return item.Id switch
         {
             "pulse.dashboard" => new PulseDashboardViewModel(),
+            "governance.documents" => _serviceProvider.GetRequiredService<DocumentListViewModel>(),
             _ => new ComingSoonViewModel(item),
         };
     }

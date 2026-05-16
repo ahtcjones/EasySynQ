@@ -1,7 +1,7 @@
 # ADR 0010 — PDF Viewer Dependency (WebView2 + PDF.js)
 
-**Status:** Accepted
-**Date:** 2026-05-15 (Proposed), 2026-05-15 (Accepted)
+**Status:** Accepted (amended)
+**Date:** 2026-05-15 (Proposed), 2026-05-15 (Accepted), 2026-05-16 (Amended — virtual host mapping required; see §"Subsequent finding" at end)
 **Supersedes:** None
 **Related:** ADR 0001 (lean stack discipline — this ADR introduces the project's first third-party UI dependency); ADR 0008 (Phase 2 scope — C5 paired with this ADR per the chunking); SPEC §5.1 (Document Controller's embedded-PDF-viewer requirement)
 
@@ -202,9 +202,122 @@ C5's smoke is the first Phase 2 commit where real user interaction can be meanin
 
 **Smoke ordering note:** C5 lands before C6 (UI shell). The Document detail view that C5 wires the viewer into doesn't fully exist until C6. C5's smoke either uses a temporary test harness window to verify the viewer in isolation, or defers the user-driven smoke to C6 when the full Document detail view is present. The plan can decide which approach fits cleanly. The unit and integration tests pin the contract regardless.
 
+## Subsequent finding — virtual host mapping required (2026-05-16, C6a smoke walk #2)
+
+C6a's first end-to-end smoke surfaced a concrete failure of this ADR's original assumption that file URI loading would suffice. The PDF.js viewer.html loaded and rendered its toolbar but the page-canvas area showed a solid black rectangle: the PDF itself was never loaded. Diagnosis (see C6a SESSION_NOTES) traced the failure to **Chromium's same-origin policy treating every file:// URL as a unique origin**, blocking PDF.js's PDF fetch from the viewer.html's file:// origin to the vault PDF's file:// origin.
+
+The original ADR's §"File URI vs hosted-content for loading" stated:
+
+> File URI (`file:///path/to/file.pdf`): Direct. Subject to WebView2's file-URI restrictions (no fetch to other origins from a file URI), but PDF.js's bundled viewer is self-contained so this isn't a constraint.
+
+That last clause was wrong. The viewer's *assets* (CSS, JS, fonts, locale files) are self-contained — they're loaded by viewer.html itself from the same file:// origin. But the viewer's *core operation* is fetching the target PDF named in the `?file=` query parameter, and that fetch is cross-origin between two distinct file:// origins.
+
+**Decision (amendment):** The control registers two WebView2 virtual hosts at init time and PDFs are addressed through them:
+
+| Virtual host | Maps to | Content |
+|---|---|---|
+| `https://easysynq-pdfviewer.local/` | `{AppContext.BaseDirectory}/Assets/pdfviewer/web/` | PDF.js viewer assets (the bundled distribution) |
+| `https://easysynq-pdfcontent.local/` | the `ContentRoot` dependency property (typically the vault root) | PDF files to display |
+
+Both mappings use `CoreWebView2HostResourceAccessKind.Allow` so PDF.js's fetch across the two virtual hosts succeeds. The control now navigates to `https://easysynq-pdfviewer.local/viewer.html?file={url-encoded content URL}` instead of a file:// URL. Callers (typically a host view-model) translate vault file paths to content URLs via the new static helper `PdfViewerControl.BuildContentUrl(absoluteFilePath, contentRoot)`.
+
+**Shape changes from C5:**
+
+- `PdfViewerControl` gains a `ContentRoot` dependency property. Hosts bind it to whatever folder backs the content-virtual-host mapping (the vault root for Phase 2).
+- `BuildViewerUrl` signature changes from `(string viewerHtmlPath, string pdfPath)` to `(string contentUrl)`. The viewer URL is now a constant; the helper only wraps the content URL into `?file=`.
+- New static helper `BuildContentUrl(string absoluteFilePath, string contentRoot)` — translates a file system path under `contentRoot` to a `https://easysynq-pdfcontent.local/...` URL.
+- `DocumentPath` dependency property's contract changes from "absolute on-disk file path" to "URL the WebView2 navigates to" (typically a content-virtual-host URL).
+
+**Banner for failures.** The amendment also closes the C5-era silent-failure gap: the `NavigationFailed` event already existed but had no subscribers, so PDF-load failures appeared as a silent black page (which is exactly how this very bug masked itself in C6a smoke walk #1). The host view (`DocumentDetailView`) now subscribes to `NavigationFailed` and forwards to the VM's `OnViewerNavigationFailed` handler, which populates `HasViewerLoadError` + `ViewerErrorMessage`. The view binds a red banner above the viewer area to that state.
+
+**Alternatives reconsidered.** The original ADR's §"File URI vs hosted-content for loading" listed three mechanisms (file URI, virtual host mapping, streamed content). Virtual host mapping was deferred as "can be adopted later if cross-origin requirements emerge." Those requirements existed from day one; the ADR's claim that the viewer was "self-contained" misread the situation. The streamed-content alternative remains deferred — virtual host mapping is sufficient for Phase 2 needs and adds no per-request runtime cost.
+
+**Tests updated.** `PdfViewerControlTests.BuildViewerUrl_*` updated to the new shape; new `BuildContentUrl_*` tests cover the path-relative URL construction; `DocumentDetailViewModelTests` updated for `VaultDocumentUrl` (renamed from `VaultFilePath`) and a `ContentRoot` pass-through assertion plus new `OnViewerNavigationFailed_*` tests for the banner state.
+
+**SPEC §5.1 unaffected.** The amendment is a viewer-implementation detail — the spec's "embedded PDF rendering" requirement is unchanged. No SPEC revision bump.
+
+### Viewer-host scope refinement (smoke walk #3, 2026-05-16)
+
+Initial implementation of the virtual-host fix scoped the viewer host mapping at `Assets/pdfviewer/web/` — i.e., the directory containing `viewer.html`. Smoke walk #3 showed the viewer.html loaded (toolbar visible) but PDF.js halted before any content fetch could happen. DevTools console surfaced the actual error:
+
+```
+GET https://easysynq-pdfviewer.local/build/pdf.mjs net::ERR_FILE_NOT_FOUND
+Uncaught TypeError: Cannot destructure property 'AbortException'
+    of 'globalThis.pdfjsLib' as it is undefined. (at viewer.mjs:993)
+```
+
+PDF.js 5.7.284's bundled distribution layout is:
+
+```
+Assets/pdfviewer/
+├── build/        ← pdf.mjs (the library)
+└── web/          ← viewer.html (the UI) + viewer.mjs
+```
+
+`web/viewer.mjs` imports the library via a sibling-directory relative path (`../build/pdf.mjs`). When the virtual-host mapping was scoped at `web/`, that import resolved to `https://easysynq-pdfviewer.local/build/pdf.mjs` — a path OUTSIDE the mapped folder, returning 404 and leaving `pdfjsLib` undefined. PDF.js's destructure threw, init halted, and the content fetch never started.
+
+**Corrected scope:** map the viewer host at the distribution's PARENT directory:
+
+| Setting | Before | After |
+|---|---|---|
+| Virtual-host folder | `Assets/pdfviewer/web/` | `Assets/pdfviewer/` |
+| Viewer URL | `https://easysynq-pdfviewer.local/viewer.html` | `https://easysynq-pdfviewer.local/web/viewer.html` |
+
+With this scope the viewer's own assets (`/web/...`) AND the library it imports (`/build/...`) both resolve under the same virtual host.
+
+**Version-bump verification step (extends the C5 PDF.js version-bump lesson).** At every PDF.js version bump, verify the distribution's top-level directory layout. If a future PDF.js version reorganizes (e.g., single-bundle delivery, renamed sibling directories), the `ViewerAssetsRelativePath` constant and the `web/` segment in `ViewerHtmlUrl` need revisiting. Add this to the PDF.js bump checklist alongside the selector-ID re-verification step.
+
+### Sub-resource failure surfaces — `WebResourceResponseReceived` (smoke walk #3, 2026-05-16)
+
+The original banner wiring subscribed to `CoreWebView2.NavigationCompleted` which fires for **top-level navigations only**. PDF.js's fetch of the content URL is a **sub-resource request** issued by JavaScript inside the loaded page — `NavigationCompleted` never fires for that. The cross-origin bug in smoke walks #1 and #2, the viewer-host scope bug in smoke walk #3, and any future failure mode targeting the content host (vault file deleted, hash mismatch, content host misconfigured) all share this characteristic: they happen below the navigation layer.
+
+The structural fix subscribes additionally to `CoreWebView2.WebResourceResponseReceived`, filtered by URL prefix matching the content virtual host. Non-2xx responses route to `RaiseNavigationFailed` with reason `"ContentFetchFailed (HTTP {status})"`. The two events together cover both layers of WebView2's failure surface: outer-navigation failures via `NavigationCompleted.IsSuccess == false`; sub-resource failures via `WebResourceResponseReceived`.
+
+The viewer-host's own sub-resource failures (PDF.js library imports, viewer assets) are intentionally NOT routed to the banner — those failures prevent the viewer from initializing at all, and the right diagnostic for them is the developer log / version-bump verification pass, not a runtime user-facing banner.
+
+**The banner is fed from THREE input wires.** As of the smoke-walk-#5 verification finding, the viewer-error banner consolidates failures from three host-side surfaces — one per covered layer in the cascade-init failure model:
+
+| # | Wire | Layer | Covers |
+|---|---|---|---|
+| 1 | `PdfViewerControl.NavigationFailed` from `NavigationCompleted.IsSuccess == false` | Layer 1 (outer navigation) | viewer.html load failures, scheme errors |
+| 2 | `PdfViewerControl.NavigationFailed` from `WebResourceResponseReceived` non-2xx on the content host | Layer 2 (sub-resource fetches) | content PDF 404 / CORS block / server error |
+| 3 | `DocumentDetailViewModel.LoadAsync` try/catch around vault I/O → direct call to `OnViewerNavigationFailed` | Layer 0 (VM-side pre-viewer load) | `IVaultService.GetVaultFilePathAsync` throws (file missing, hash mismatch, blob row gone) |
+
+Layer 0 was the post-amendment fourth wire. Without it, `FileNotFoundException` / `InvalidDataException` / `KeyNotFoundException` thrown from `GetVaultFilePathAsync` escaped through the async-void `Loaded` handler to the WPF dispatcher's last-resort handler — wrong UX shape for a per-document load failure. The catch is narrow to those three documented vault failure modes; unrelated exceptions (programming errors, infrastructure failures) still escape to the dispatcher so they don't masquerade as vault-content issues. See `DocumentDetailViewModelTests.LoadAsync_VaultFileMissing_*` / `LoadAsync_VaultHashMismatch_*` / `LoadAsync_VaultBlobRowMissing_*` / `LoadAsync_UnexpectedException_StillEscapes` for the pinned behavior.
+
+Layer 3 remains deliberately uncovered — see the HOSTED_VIEWER_ORIGINS section below.
+
+### PDF.js HOSTED_VIEWER_ORIGINS patch (smoke walk #4, 2026-05-16)
+
+Smoke walk #4 surfaced a **Layer 3** failure — PDF.js's own JavaScript-internal validation rejecting the content URL before any fetch was attempted. DevTools console:
+
+```
+Uncaught (in promise) Error: file origin does not match viewer's
+  at validateFileURL (viewer.mjs:19512:16)
+```
+
+`validateFileURL` is PDF.js's open-redirect guard for Mozilla's hosted viewer at `mozilla.github.io`. It rejects PDF URLs whose origin differs from the viewer's origin, with a hardcoded `HOSTED_VIEWER_ORIGINS` allowlist of Mozilla-known origins (`"null"`, `"http://mozilla.github.io"`, `"https://mozilla.github.io"`). The amendment's two-virtual-host design (`easysynq-pdfviewer.local` + `easysynq-pdfcontent.local`) is exactly the cross-origin pattern the guard rejects.
+
+**Failure cascade model.** This is the third distinct layer at which a viewer load can fail in our deployment:
+
+| Layer | Surface | What we observed |
+|---|---|---|
+| 1 — Outer navigation | `CoreWebView2.NavigationCompleted.IsSuccess` | The original (pre-amendment) cross-origin file:// failure — viewer.html itself failed to load. Caught by the original NavigationFailed wiring. |
+| 2 — Sub-resource fetches | `CoreWebView2.WebResourceResponseReceived` (status code) | Walk #3's viewer-host scope bug (build/pdf.mjs → 404); a hypothetical future case of the content PDF being missing or CORS-blocked. Caught by the smoke-walk-#3 `WebResourceResponseReceived` expansion. |
+| 3 — JS-internal validation / errors | PDF.js's `eventBus` events surfaced via WebView2 ↔ JS bridge | Walk #4's validateFileURL rejection — no fetch happens, no WebView2 host-side event fires. **Not covered by the C6a banner** by design (see below). |
+
+**Decision — Option A (patch viewer.mjs's HOSTED_VIEWER_ORIGINS).** A single-line edit to the Set literal adds `"https://easysynq-pdfviewer.local"` as a fourth allowed origin. PDF.js then treats our viewer as a hosted-viewer and skips the validation.
+
+**Why Option A over Option B (single virtual host via WebResourceRequested handler).** WebView2's `SetVirtualHostNameToFolderMapping` is one-folder-per-hostname; a single-virtual-host design would require a custom `WebResourceRequested` event handler routing requests by URL prefix to different folders. The hidden cost is **Range request support**: large PDFs (100+ page customer specifications are realistic in a QMS deployment) trigger HTTP Range requests so PDF.js can stream pages on demand. Implementing Range correctly involves RFC 7233 edge cases (multi-range, suffix-length, past-EOF, If-Range) that WebView2's native fetch pipeline already handles. Option B would reproduce existing WebView2 infrastructure with our own bugs in 50-100 lines of handler code we own forever. Option A is one line in a vendored file with a documented per-bump verification step.
+
+**Maintenance shape.** The patch adds one entry to the PDF.js version-bump checklist (alongside the existing toolbar-ID re-verification from C5's lesson and the easysynq-overrides.css selector re-verification). See `Assets/pdfviewer/README.md` for the full bump procedure.
+
+**Layer 3 coverage decision — out of scope for C6a.** With Option A in place, the only expected Layer 3 case (validateFileURL) no longer fires in normal operation. The banner therefore covers Layers 1 + 2 only. If a future feature requires Layer 3 coverage — e.g., catching PDF parse errors on malformed PDFs, surfacing PDF.js's internal "document failed to load" events — the right shape is option (i) from the smoke-walk-#3 triage: a JavaScript-to-host bridge via WebView2's `AddScriptToExecuteOnDocumentCreatedAsync` + `WebMessageReceived`, subscribing to PDF.js's `eventBus.on('documenterror', ...)` events. Not done now; the cascade-init-failure model is what we'd consult before deciding to add it.
+
 ## References
 
 - `docs/SPEC.md` §3.4 (No external PDF viewers — context for the in-process rendering choice); §4.5 (Print-friendly requirement); §5.1 (Document Controller's embedded-viewer requirement)
 - ADR 0001 (Lean stack discipline — this ADR justifies the first UI third-party dependency)
 - ADR 0008 (Phase 2 scope — C5 paired with this ADR)
 - `docs/SESSION_NOTES.md` 2026-05-15 (Phase 2 C4) — handoff entry that flagged C5 as the next pickup with the library-choice decision pending
+- `docs/SESSION_NOTES.md` 2026-05-16 (Phase 2 C6a smoke walk #2 + #3) — where the cross-origin finding surfaced and the virtual-host fix landed

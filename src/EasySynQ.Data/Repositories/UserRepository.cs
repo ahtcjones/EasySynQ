@@ -34,4 +34,24 @@ public class UserRepository : Repository<User, Guid>, IUserRepository
                 u => EF.Functions.Collate(u.Username, "NOCASE") == username,
                 cancellationToken);
     }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<User>> GetByIdsAsync(
+        IEnumerable<Guid> ids,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+
+        // Dedupe + materialize once so the underlying enumerable
+        // isn't iterated twice (the empty short-circuit + the query).
+        var distinct = ids.Distinct().ToList();
+        if (distinct.Count == 0)
+        {
+            return [];
+        }
+
+        return await Query()
+            .Where(u => distinct.Contains(u.Id))
+            .ToListAsync(cancellationToken);
+    }
 }

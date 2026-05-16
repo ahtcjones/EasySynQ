@@ -56,4 +56,38 @@ public sealed class DocumentRevisionRepository
             .OrderByDescending(r => r.ApprovedAtUtc)
             .FirstOrDefaultAsync(cancellationToken);
     }
+
+    /// <inheritdoc />
+    public Task<DocumentRevision?> GetLatestRevisionAsync(
+        Guid documentId,
+        CancellationToken cancellationToken)
+    {
+        if (documentId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "DocumentId must not be Guid.Empty.", nameof(documentId));
+        }
+
+        return Query()
+            .Where(r => r.DocumentId == documentId)
+            .OrderByDescending(r => r.CreatedUtc)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<DocumentRevision>> GetByDocumentIdAsync(
+        Guid documentId,
+        CancellationToken cancellationToken)
+    {
+        if (documentId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "DocumentId must not be Guid.Empty.", nameof(documentId));
+        }
+
+        return await Query()
+            .Where(r => r.DocumentId == documentId)
+            .OrderBy(r => r.CreatedUtc)
+            .ToListAsync(cancellationToken);
+    }
 }

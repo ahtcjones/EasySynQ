@@ -38,7 +38,7 @@ public static class NavigationCatalog
         new("pulse.dashboard", "Pulse Dashboard", NavigationSection.Pulse, targetPhase: 1, isAvailable: true),
 
         // Governance — Phase 2, 3, 4, 9.
-        new("governance.documents",          "Documents",          NavigationSection.Governance, targetPhase: 2, isAvailable: false),
+        new("governance.documents",          "Documents",          NavigationSection.Governance, targetPhase: 2, isAvailable: true),
         new("governance.risk",               "Risk Register",      NavigationSection.Governance, targetPhase: 3, isAvailable: false),
         new("governance.competency",         "Competency Matrix",  NavigationSection.Governance, targetPhase: 4, isAvailable: false),
         new("governance.audits",             "Internal Audits",    NavigationSection.Governance, targetPhase: 9, isAvailable: false),

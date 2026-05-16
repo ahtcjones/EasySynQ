@@ -41,6 +41,7 @@ public partial class MainShellViewModel : ObservableObject
 {
     private readonly ILogger<MainShellViewModel> _logger;
     private readonly ICurrentUserAccessor _currentUser;
+    private readonly NavigationContentFactory _contentFactory;
 
     /// <summary>Constructs the shell view model.</summary>
     /// <param name="logger">Diagnostic logger for the shell.</param>
@@ -53,19 +54,27 @@ public partial class MainShellViewModel : ObservableObject
     /// authorization decisions per ADR 0007 (those check
     /// <c>Permissions</c>, which is the data-layer's concern, not the
     /// shell's).</param>
+    /// <param name="contentFactory">Maps a
+    /// <see cref="NavigationItem"/> to the content view model the
+    /// shell renders. Injected (rather than statically resolved) as of
+    /// Phase 2 C6a — see <see cref="NavigationContentFactory"/>'s
+    /// remarks for the rationale.</param>
     /// <exception cref="ArgumentNullException">Thrown when any
     /// argument is <see langword="null"/>.</exception>
     public MainShellViewModel(
         ILogger<MainShellViewModel> logger,
         PulseDrawerViewModel pulseDrawer,
-        ICurrentUserAccessor currentUser)
+        ICurrentUserAccessor currentUser,
+        NavigationContentFactory contentFactory)
     {
         ArgumentNullException.ThrowIfNull(logger);
         ArgumentNullException.ThrowIfNull(pulseDrawer);
         ArgumentNullException.ThrowIfNull(currentUser);
+        ArgumentNullException.ThrowIfNull(contentFactory);
         _logger = logger;
         PulseDrawerViewModel = pulseDrawer;
         _currentUser = currentUser;
+        _contentFactory = contentFactory;
     }
 
     /// <summary>
@@ -250,7 +259,7 @@ public partial class MainShellViewModel : ObservableObject
         }
 
         SelectedItem = target;
-        CurrentContent = NavigationContentFactory.CreateContentFor(target);
+        CurrentContent = _contentFactory.CreateContentFor(target);
     }
 
     /// <summary>

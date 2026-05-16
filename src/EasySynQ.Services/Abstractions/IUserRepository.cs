@@ -18,4 +18,20 @@ public interface IUserRepository : IRepository<User, Guid>
     /// <see langword="null"/>, empty, or whitespace.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     Task<User?> FindByUsernameAsync(string username, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Fetches multiple users by id in a single query. Returns only
+    /// rows that exist and are not soft-deleted; missing or
+    /// soft-deleted ids are silently dropped from the result. Order
+    /// is not guaranteed; callers project to a dictionary keyed by
+    /// <see cref="User.Id"/>. Backs the C6a Document list view's
+    /// author-username resolution.
+    /// </summary>
+    /// <param name="ids">User ids to fetch. Duplicates are deduped.
+    /// An empty input returns an empty result without querying.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>Found, non-soft-deleted users for the supplied ids.</returns>
+    Task<IReadOnlyList<User>> GetByIdsAsync(
+        IEnumerable<Guid> ids,
+        CancellationToken cancellationToken);
 }
