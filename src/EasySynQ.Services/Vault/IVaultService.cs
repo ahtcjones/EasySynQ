@@ -163,4 +163,43 @@ public interface IVaultService
     /// Thrown when the current user does not hold the
     /// <c>Vault.PhysicalDelete</c> permission.</exception>
     Task PhysicalDeleteAsync(Guid blobId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns the on-disk file path for the supplied vault blob,
+    /// without opening or buffering the file's contents (ADR 0010
+    /// C5). Used by the PDF viewer integration which needs a path to
+    /// hand to WebView2's URI loader rather than a stream. Performs
+    /// the same defensive checks as <see cref="RetrieveAsync"/>: the
+    /// row exists, the file exists at the expected sharded path, and
+    /// the on-disk content's SHA-256 matches the stored hash.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Hash validation cost.</b> The hash recomputation reads the
+    /// entire file from disk — same cost as
+    /// <see cref="RetrieveAsync"/>. For typical pilot-deployment PDFs
+    /// (under 20 MB), this is sub-second on local or fast network
+    /// storage. The cost is accepted as the price of the
+    /// tamper-evidence guarantee SPEC §3.6 requires; a "fast path"
+    /// variant that skips validation is not exposed (the viewer call
+    /// site is the moment where the user is about to look at the
+    /// document — hash validation is exactly the right time).
+    /// </para>
+    /// </remarks>
+    /// <param name="blobId">Identifier of the
+    /// <see cref="VaultBlob"/> whose path to return. Must not be
+    /// <see cref="Guid.Empty"/>.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The absolute on-disk path of the vault file.</returns>
+    /// <exception cref="ArgumentException">Thrown when
+    /// <paramref name="blobId"/> is <see cref="Guid.Empty"/>.</exception>
+    /// <exception cref="KeyNotFoundException">Thrown when no
+    /// non-soft-deleted <see cref="VaultBlob"/> row exists for the
+    /// supplied id.</exception>
+    /// <exception cref="FileNotFoundException">Thrown when the row
+    /// exists but the on-disk file is missing.</exception>
+    /// <exception cref="InvalidDataException">Thrown when the on-disk
+    /// content's SHA-256 does not match the stored hash (tamper /
+    /// corruption).</exception>
+    Task<string> GetVaultFilePathAsync(Guid blobId, CancellationToken cancellationToken);
 }

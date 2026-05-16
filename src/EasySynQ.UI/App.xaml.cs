@@ -24,6 +24,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Web.WebView2.Core;
 
 using Serilog;
 using Serilog.Events;
@@ -121,6 +122,11 @@ public partial class App : Application
         ConfigureExceptionHandlers(_host);
 
         if (!ApplyPendingMigrations(_host))
+        {
+            return;
+        }
+
+        if (!CheckWebView2Runtime(_host))
         {
             return;
         }
@@ -639,6 +645,109 @@ public partial class App : Application
         Level = LogLevel.Critical,
         Message = "Database migration failed; application cannot start.")]
     private static partial void LogMigrationFailed(
+        ILogger<App> logger,
+        Exception ex);
+
+    /// <summary>
+    /// Detects whether the Microsoft Edge WebView2 Runtime is
+    /// installed (ADR 0010 C5). Returns <c>true</c> when present;
+    /// returns <c>false</c> after logging Critical, showing a
+    /// "WebView2 Runtime required" dialog, and queueing exit code 1.
+    /// Mirrors <see cref="ApplyPendingMigrations"/>'s
+    /// terminal-state shape.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// <b>Why startup detection, not lazy.</b> The PDF viewer is the
+    /// only feature that consumes WebView2 today, but reaching the
+    /// document detail view and only then learning "this app needs a
+    /// system component installed" is bad UX. Detecting at launch
+    /// produces a clear actionable error before the user has invested
+    /// effort. The check itself is cheap — a single
+    /// <see cref="CoreWebView2Environment.GetAvailableBrowserVersionString()"/>
+    /// call that returns a string or throws.
+    /// </para>
+    /// <para>
+    /// <b>Why try/catch + Shutdown(1) instead of the global handler.</b>
+    /// Same rationale as <see cref="ApplyPendingMigrations"/>: a missing
+    /// WebView2 Runtime is a terminal startup state, not a "log + dialog
+    /// + keep running" case. The dispatcher handler's contract is
+    /// "keep the app alive"; that's wrong here because the app cannot
+    /// render any document without the runtime.
+    /// </para>
+    /// </remarks>
+    /// <param name="host">The host providing the host-side logger.</param>
+    /// <returns><c>true</c> when the runtime is present;  <c>false</c>
+    /// when it is missing (caller short-circuits further startup
+    /// wiring so no window shows during the queued shutdown).</returns>
+    [SuppressMessage(
+        "Design",
+        "CA1031:Do not catch general exception types",
+        Justification = "Runtime detection is terminal-state; catch-all so any failure shape (missing runtime, registry access denied, unexpected COM error) surfaces uniformly via dialog + log + shutdown.")]
+    private static bool CheckWebView2Runtime(IHost host)
+    {
+        var logger = host.Services.GetRequiredService<ILogger<App>>();
+
+        try
+        {
+            var version = CoreWebView2Environment.GetAvailableBrowserVersionString();
+            // GetAvailableBrowserVersionString returns null when the
+            // runtime is not installed (older WebView2 versions threw;
+            // current versions return null). Treat both shapes as
+            // "missing" via the same code path.
+            if (string.IsNullOrWhiteSpace(version))
+            {
+                throw new WebView2RuntimeNotFoundException(
+                    "Microsoft Edge WebView2 Runtime is not installed " +
+                    "(GetAvailableBrowserVersionString returned null/empty).");
+            }
+            LogWebView2RuntimeDetected(logger, version);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogWebView2RuntimeMissing(logger, ex);
+
+            MessageBox.Show(
+                "EasySynQ requires the Microsoft Edge WebView2 Runtime to be installed. " +
+                "Please contact your IT administrator and reference the deployment " +
+                "documentation.\n\n" +
+                "The WebView2 Runtime is a free Microsoft component available from " +
+                "https://developer.microsoft.com/microsoft-edge/webview2/.",
+                "EasySynQ — WebView2 Runtime required",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+
+            Current.Shutdown(1);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Source-generated emit for the runtime-detected path. Fires
+    /// once per successful startup; the version string is logged so
+    /// support can correlate viewer behavior to a specific runtime
+    /// release.
+    /// </summary>
+    [LoggerMessage(
+        EventId = 6006,
+        Level = LogLevel.Information,
+        Message = "WebView2 Runtime detected; version {WebView2Version}.")]
+    private static partial void LogWebView2RuntimeDetected(
+        ILogger<App> logger,
+        string webView2Version);
+
+    /// <summary>
+    /// Source-generated emit for the runtime-missing path. Fires
+    /// once per failed startup; the matching user-visible surface is
+    /// the "WebView2 Runtime required" dialog and the process exit
+    /// code 1.
+    /// </summary>
+    [LoggerMessage(
+        EventId = 6007,
+        Level = LogLevel.Critical,
+        Message = "WebView2 Runtime missing; application cannot start.")]
+    private static partial void LogWebView2RuntimeMissing(
         ILogger<App> logger,
         Exception ex);
 

@@ -309,6 +309,82 @@ public sealed partial class VaultService : IVaultService
         LogVaultPhysicalDelete(_logger, blobId, blob.Sha256Hash);
     }
 
+    /// <inheritdoc />
+    public async Task<string> GetVaultFilePathAsync(Guid blobId, CancellationToken cancellationToken)
+    {
+        if (blobId == Guid.Empty)
+        {
+            throw new ArgumentException("BlobId must not be Guid.Empty.", nameof(blobId));
+        }
+
+        var blob = await _blobs.GetByIdAsync(blobId, cancellationToken)
+            ?? throw new KeyNotFoundException(
+                $"VaultBlob {blobId} not found (no row, or row is soft-deleted).");
+
+        var path = BuildFinalPath(
+            _pathProvider.VaultRoot,
+            blob.Sha256Hash,
+            GetExtensionFromFileName(blob.OriginalFileName));
+
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException(
+                $"VaultBlob {blobId} row exists but the on-disk file at " +
+                $"'{path}' is missing.",
+                path);
+        }
+
+        // Hash validation per ADR 0010 C5 — the path is about to be
+        // handed to the PDF viewer; this is exactly the moment when
+        // tamper / corruption must surface. Reads the whole file once
+        // for the hash; same cost as RetrieveAsync's hash check.
+        await ValidateHashOnDiskAsync(path, blob.Sha256Hash, blobId, cancellationToken);
+
+        return path;
+    }
+
+    /// <summary>
+    /// Reads the file at <paramref name="path"/> and recomputes its
+    /// SHA-256, throwing <see cref="InvalidDataException"/> if the
+    /// computed hash does not match <paramref name="expectedHash"/>.
+    /// Used by <see cref="GetVaultFilePathAsync"/> per ADR 0010 C5;
+    /// <see cref="RetrieveAsync"/> retains its own single-pass
+    /// hash-while-reading shape and does not call this helper.
+    /// </summary>
+    private static async Task ValidateHashOnDiskAsync(
+        string path,
+        string expectedHash,
+        Guid blobId,
+        CancellationToken cancellationToken)
+    {
+        string computedHash;
+        await using (var fileStream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 81920,
+            useAsync: true))
+        using (var hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
+        {
+            var chunk = new byte[81920];
+            int read;
+            while ((read = await fileStream.ReadAsync(chunk.AsMemory(0, chunk.Length), cancellationToken)) > 0)
+            {
+                hasher.AppendData(chunk, 0, read);
+            }
+            computedHash = Convert.ToHexString(hasher.GetHashAndReset()).ToLowerInvariant();
+        }
+
+        if (!string.Equals(computedHash, expectedHash, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                $"VaultBlob {blobId} on-disk content hash mismatch. " +
+                $"Stored: {expectedHash}. Computed: {computedHash}. " +
+                $"The on-disk file may be tampered or corrupted.");
+        }
+    }
+
     private static string BuildFinalPath(string vaultRoot, string sha256Hash, string fileExtension)
     {
         // SHA-256 hex is always lowercase 64 chars by the entity's

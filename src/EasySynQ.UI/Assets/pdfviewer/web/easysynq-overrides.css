@@ -1,0 +1,31 @@
+/*
+ * EasySynQ overrides for the bundled PDF.js viewer (ADR 0010 C5).
+ *
+ * Hides the download and open-file affordances in PDF.js's toolbar
+ * and overflow menu. SPEC §5.1 documents are read-only inside the
+ * app; users acquire copies through controlled export (a future
+ * commit), not browser-style downloads. Open-file is also hidden —
+ * "documents are read-only inside the app" implies the user does
+ * not load arbitrary other documents through the viewer either.
+ *
+ * Element IDs verified against PDF.js 5.7.284 (the bundled version).
+ * If you bump PDF.js, re-verify the IDs in web/viewer.html and
+ * update the selectors below if Mozilla has renamed them.
+ *
+ * IDs in 5.7.284:
+ *   #downloadButton    — primary toolbar download/save button.
+ *   #secondaryDownload — download/save in the overflow (≡) menu.
+ *   #secondaryOpenFile — open-file in the overflow menu.
+ *
+ * Notes on what changed between 4.x and 5.x:
+ *   - #download was renamed to #downloadButton.
+ *   - The primary #openFile toolbar button was removed in 5.x;
+ *     open-file is only in the overflow menu now.
+ *
+ * !important is required to override PDF.js's own display rules.
+ */
+#downloadButton,
+#secondaryDownload,
+#secondaryOpenFile {
+    display: none !important;
+}

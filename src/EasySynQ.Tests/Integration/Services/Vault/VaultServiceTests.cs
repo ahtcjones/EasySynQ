@@ -487,4 +487,120 @@ public class VaultServiceTests : ServiceIntegrationTestBase
         File.Exists(BuildShardedPath(VaultRoot, Sha256Hex(bytesA), ".bin")).Should().BeTrue();
         File.Exists(BuildShardedPath(VaultRoot, Sha256Hex(bytesB), ".bin")).Should().BeTrue();
     }
+
+    // ─── GetVaultFilePathAsync (ADR 0010 C5) ────────────────────────
+
+    [Fact]
+    public async Task GetVaultFilePath_ExistingBlob_ReturnsExpectedShardedPathAsync()
+    {
+        var bytes = HelloPdfBytes();
+        var expectedHash = Sha256Hex(bytes);
+        CurrentUser.UserId = Guid.NewGuid();
+        CurrentUser.Username = "tester";
+
+        Guid blobId;
+        await using (var scope = NewScope())
+        {
+            var vault = scope.ServiceProvider.GetRequiredService<IVaultService>();
+            await using var content = new MemoryStream(bytes);
+            var blob = await vault.StoreAsync(content, PdfMimeType, "report.pdf", ".pdf", Ct);
+            blobId = blob.Id;
+        }
+
+        await using (var scope = NewScope())
+        {
+            var vault = scope.ServiceProvider.GetRequiredService<IVaultService>();
+            var path = await vault.GetVaultFilePathAsync(blobId, Ct);
+
+            path.Should().Be(BuildShardedPath(VaultRoot, expectedHash, ".pdf"));
+            File.Exists(path).Should().BeTrue();
+        }
+    }
+
+    [Fact]
+    public async Task GetVaultFilePath_UnknownBlobId_ThrowsKeyNotFoundAsync()
+    {
+        await using var scope = NewScope();
+        var vault = scope.ServiceProvider.GetRequiredService<IVaultService>();
+
+        var act = async () => await vault.GetVaultFilePathAsync(Guid.NewGuid(), Ct);
+
+        await act.Should().ThrowAsync<KeyNotFoundException>();
+    }
+
+    [Fact]
+    public async Task GetVaultFilePath_HashMismatch_ThrowsAsync()
+    {
+        // Same defensive behavior as RetrieveAsync — hash mismatch
+        // surfaces as InvalidDataException, NOT as a returned path
+        // pointing at corrupt content. The viewer call site is
+        // exactly the moment when tampering must be caught, not
+        // silently rendered.
+        var bytes = HelloPdfBytes();
+        var expectedHash = Sha256Hex(bytes);
+        CurrentUser.UserId = Guid.NewGuid();
+        CurrentUser.Username = "tester";
+
+        Guid blobId;
+        await using (var scope = NewScope())
+        {
+            var vault = scope.ServiceProvider.GetRequiredService<IVaultService>();
+            await using var content = new MemoryStream(bytes);
+            var blob = await vault.StoreAsync(content, PdfMimeType, "x.pdf", ".pdf", Ct);
+            blobId = blob.Id;
+        }
+
+        // Corrupt the on-disk file in place.
+        var path = BuildShardedPath(VaultRoot, expectedHash, ".pdf");
+        await File.AppendAllTextAsync(path, "corruption", Ct);
+
+        await using (var scope = NewScope())
+        {
+            var vault = scope.ServiceProvider.GetRequiredService<IVaultService>();
+            var act = async () => await vault.GetVaultFilePathAsync(blobId, Ct);
+
+            (await act.Should().ThrowAsync<InvalidDataException>())
+                .WithMessage("*hash mismatch*");
+        }
+    }
+
+    [Fact]
+    public async Task GetVaultFilePath_FileDeleted_ThrowsFileNotFoundAsync()
+    {
+        var bytes = HelloPdfBytes();
+        var expectedHash = Sha256Hex(bytes);
+        CurrentUser.UserId = Guid.NewGuid();
+        CurrentUser.Username = "tester";
+
+        Guid blobId;
+        await using (var scope = NewScope())
+        {
+            var vault = scope.ServiceProvider.GetRequiredService<IVaultService>();
+            await using var content = new MemoryStream(bytes);
+            var blob = await vault.StoreAsync(content, PdfMimeType, "x.pdf", ".pdf", Ct);
+            blobId = blob.Id;
+        }
+
+        File.Delete(BuildShardedPath(VaultRoot, expectedHash, ".pdf"));
+
+        await using (var scope = NewScope())
+        {
+            var vault = scope.ServiceProvider.GetRequiredService<IVaultService>();
+            var act = async () => await vault.GetVaultFilePathAsync(blobId, Ct);
+
+            await act.Should().ThrowAsync<FileNotFoundException>();
+        }
+    }
+
+    [Fact]
+    public async Task GetVaultFilePath_EmptyGuid_ThrowsArgumentExceptionAsync()
+    {
+        await using var scope = NewScope();
+        var vault = scope.ServiceProvider.GetRequiredService<IVaultService>();
+
+        var act = async () => await vault.GetVaultFilePathAsync(Guid.Empty, Ct);
+
+        await act.Should().ThrowAsync<ArgumentException>()
+            .WithMessage("*Guid.Empty*");
+    }
 }

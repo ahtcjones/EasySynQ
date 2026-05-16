@@ -15,10 +15,33 @@
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.7" />
+    <!--
+      Microsoft.Web.WebView2 — first third-party UI dependency in the
+      project (ADR 0010 C5). Pinned to a specific version, NOT a range,
+      per CLAUDE.md non-negotiable rule 9. Version bumps are deliberate.
+      Brings in the WebView2 WPF control used by PdfViewerControl to
+      host the bundled PDF.js viewer (Assets/pdfviewer/).
+    -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3967.48" />
     <PackageReference Include="Serilog" Version="4.3.1" />
     <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.Debug" Version="3.0.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      PDF.js bundled distribution (ADR 0010 C5). Vendored release
+      artifacts at Assets/pdfviewer/; copied verbatim to the build
+      output so the runtime PdfViewerControl can construct file://
+      URIs against AppContext.BaseDirectory + "Assets/pdfviewer/web/
+      viewer.html". The README.md inside that folder documents the
+      bundled PDF.js version and the small viewer.html patch that
+      includes the easysynq-overrides.css.
+    -->
+    <Content Include="Assets\pdfviewer\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>
