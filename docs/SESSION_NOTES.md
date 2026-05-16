@@ -2019,3 +2019,272 @@ itself should be small once the ADR has settled the question.
 Working tree clean as of this entry's commit.
 
 ---
+
+## 2026-05-15 (Phase 2 C5) — PDF viewer (WebView2 + PDF.js) scaffolding + IVaultService.GetVaultFilePathAsync (ADR 0010 / ADR 0008 C5)
+
+Single commit on master since the previous handoff (this docs
+commit will be the second):
+
+- `820d040` feat(ui): PDF viewer (WebView2 + PDF.js) scaffolding +
+  IVaultService.GetVaultFilePathAsync (ADR 0010 / ADR 0008 C5) —
+  418 files changed; most of those are the bundled PDF.js
+  distribution.
+
+Fifth commit in the Phase 2 chunk chain. Lands ADR 0010 (PDF viewer
+dependency choice) Accepted plus the C5 implementation that ships
+the bundled PDF.js 5.7.284 distribution, the WebView2-hosting
+`PdfViewerControl`, the `IVaultService.GetVaultFilePathAsync`
+method the viewer call site needs, and the App.xaml.cs startup
+gate that detects a missing WebView2 Runtime. Forward-looking
+scaffolding — no production flow invokes the viewer yet (those
+land in C6 with the document detail view).
+
+### ADR 0010 status
+
+Flipped Proposed → Accepted with the dual-date stamp
+`2026-05-15 (Proposed), 2026-05-15 (Accepted)` per ADR 0007 / 0008
+/ 0009 precedent. Same-day flip is the working norm for ADRs
+paired with their implementation commit.
+
+### First third-party UI dependency — precedent-setting
+
+`Microsoft.Web.WebView2 1.0.3967.48` pinned in
+`EasySynQ.UI.csproj`. CLAUDE.md non-negotiable rule 9 ("No new
+dependencies without flagging it first") is satisfied by ADR
+0010's justification on maintenance + rendering fidelity +
+feature completeness grounds.
+
+**The commit message explicitly calls this out as
+precedent-setting.** Future commits should NOT read this as "the
+door is open for any UI library" — every new dependency still
+requires its own ADR-level justification. The csproj comment
+itself documents the dependency as the first third-party UI
+dependency in the project so a future contributor reading the
+project file sees the framing.
+
+### Version-bump verification lesson worth pinning
+
+The plan targeted four toolbar element IDs for the disable-
+download CSS overrides (`#download`, `#secondaryDownload`,
+`#openFile`, `#secondaryOpenFile`). Verification against
+5.7.284's actual `viewer.html` surfaced two real changes:
+
+- `#download` was renamed to `#downloadButton` in 5.x.
+- `#openFile` (primary toolbar) was REMOVED entirely in 5.x —
+  the open-file affordance only exists in the overflow menu now
+  (`#secondaryOpenFile`, unchanged).
+
+The override CSS ships with **three** selectors, not four:
+`#downloadButton`, `#secondaryDownload`, `#secondaryOpenFile`.
+Documented in the CSS file's header comment AND in
+`Assets/pdfviewer/README.md` so the next maintainer doing a
+PDF.js version bump knows what to re-verify.
+
+The general principle:
+
+> **Verify version assumptions at commit time, not in the plan.**
+> The plan can record working assumptions, but the implementer
+> verifies against the actual bundled version. Differences get
+> surfaced in the implementation summary, not papered over.
+
+The user explicitly built this expectation into the plan-approval
+("do the verification at implementation time. Specifically,
+before committing the easysynq-overrides.css contents, verify
+that the four toolbar element IDs the CSS hides actually exist in
+5.7.284's bundled viewer.html"). The convention works as designed
+when this kind of plan-vs-reality drift surfaces in the
+implementation summary rather than as a silent assumption.
+
+Adding to the standing protocol for any future ADR that bundles a
+specific third-party version: re-verify selectors / API shapes /
+config flags at commit time, document deltas in both the
+implementation and the version-bump README.
+
+### PDF.js bundled size — 21 MB vs the ADR's 5 MB estimate
+
+ADR §"Negative" point 6 estimated "~5MB of JavaScript assets
+bundled at assets/pdfviewer/." The actual 5.7.284 distribution
+came in at **21 MB across 408 files** — substantially more than
+the 4.x footprint the estimate was based on. PDF.js 5.x ships
+more locale files (80+ languages), CMap unicode-mapping tables
+(~150 files), standard fonts, sandbox builds, and WASM modules
+for JBIG2 / OpenJPEG / QCMS / quickjs-eval.
+
+Acceptable for a single-feature dependency; deployment-self-
+sufficiency was the priority and the alternative (build-time
+download or runtime CDN fetch) was already rejected by the ADR.
+Trimming the locale set down to the languages the deployment
+actually serves (English-only for the pilot) is possible as a
+future commit if installer size becomes a constraint — but the
+maintenance cost is "re-trim on every PDF.js version bump,"
+which is not free.
+
+Recording the 4x estimate gap so future ADRs that bundle
+third-party distributions can use 21 MB as a more realistic
+floor for PDF.js-class dependencies rather than the 5 MB optimism.
+
+### Test count progression
+
+| Stop point | Count | Delta | New tests |
+|---|---|---|---|
+| Post-C4 (commit d506ee9) | 483 | — | baseline |
+| Post-this-commit | 495 | +12 | 7 PdfViewerControlTests (4 `[Fact]` + 1 `[Theory]` expanding to 3 cases via `[InlineData]` — event-args round-trip, null-handling, three reason-validation variants, two BuildViewerUrl URL-encoding cases) + 5 VaultServiceTests `GetVaultFilePathAsync` section (happy path, unknown blob → KeyNotFoundException, hash mismatch → InvalidDataException, file deleted → FileNotFoundException, Guid.Empty → ArgumentException) |
+
+Test stability per CLAUDE.md: 5 consecutive `dotnet test` runs at
+495/495 each, 100% run-level pass rate. Build clean, 0 warnings
+0 errors. No stress test required (test infrastructure unchanged
+— no fixture base classes modified, no interceptor wiring
+changes, no test-double additions).
+
+### EventId allocations — 6xxx App-tier extended
+
+Two new EventIds added to the App-tier startup-and-lifecycle
+range:
+
+- **6006 Information** — WebView2 Runtime detected. Logs the
+  runtime version string so support can correlate viewer
+  behavior to a specific runtime release.
+- **6007 Critical** — WebView2 Runtime missing. Terminal-state
+  error; mirrors the 6002/6003 migration pattern.
+
+Full 6xxx allocations now:
+
+| EventId | Level | Message |
+|---|---|---|
+| 6001 | Information | User signed in successfully |
+| 6002 | Information | Applying pending migrations |
+| 6003 | Critical | Database migration failed |
+| 6004 | Information | Bootstrap completed; signing in administrator |
+| 6005 | Warning | Bootstrap idempotency guard fired |
+| **6006** | **Information** | **WebView2 Runtime detected** |
+| **6007** | **Critical** | **WebView2 Runtime missing** |
+
+The 6xxx range is documented here so the next App-tier startup
+check (whatever C-N introduces) picks the next available number
+without collision.
+
+### Architectural pattern worth recording — terminal-state startup checks
+
+`ApplyPendingMigrations` established the shape; `CheckWebView2Runtime`
+now follows it exactly. The pattern:
+
+1. Try/catch the feature-prerequisite check inside a method
+   returning `bool` (`true` on success, `false` on terminal
+   failure).
+2. On success: log at Information level with whatever payload is
+   useful for support correlation (version string, migration
+   list).
+3. On terminal failure: log at Critical level with the exception,
+   show a `MessageBox` pointing at the deployment-doc reference,
+   call `Current.Shutdown(1)`, return `false`.
+4. The caller short-circuits the rest of the startup sequence on
+   `false` — no window shows during the queued shutdown.
+
+The pattern is **intentionally NOT routed through the global
+dispatcher's keep-alive handling.** The dispatcher handler exists
+for recoverable exceptions; a missing feature prerequisite is not
+recoverable mid-session, and the dispatcher's "keep the app
+alive" contract is the wrong response.
+
+Pattern is reusable for any future startup-time feature-
+prerequisite check (e.g., if a future feature requires a specific
+.NET runtime version, a specific Windows version, or a specific
+external service availability). Recording here so the pattern is
+discoverable beyond two implementations of it.
+
+### Risk-driven smoke skip — fifth consecutive commit
+
+C1 (DB inspection + integration tests covered the migration + sign-
+in regression), C2 (tempdir tests covered the filesystem behavior),
+C3 (real-SQLite + interceptor pipeline tests covered the lifecycle
+service end-to-end), C4 (forward-looking scaffolding with no
+production flow invoking the dialog), C5 (no production-host
+surface invokes the viewer yet — that lands in C6).
+
+The protocol from C1's handoff is now settled practice. Each
+skip had a distinct, specific reason; never a default
+"skip-everything" stance.
+
+### C6 marks the return of load-bearing smoke
+
+C6 wires C1–C5's infrastructure into actual user-facing surfaces:
+
+- Document list view consumes C1's entities + repositories.
+- Document detail view hosts C5's `PdfViewerControl`.
+- Submit-for-review dialog invokes C3's lifecycle service through
+  C4's `ISignatureRolePrompter`.
+- Review-and-sign dialog likewise consumes C3 + C4.
+
+The multi-role signing flow that C4 specifically deferred to C6
+finally has somewhere to run. The PDF viewer that C5 built but
+never invoked finally renders a real document. The state machine
+that C3 implemented finally has user gestures driving its
+transitions.
+
+Smoke window opens back up for C6. The protocol shifts from
+"five-for-five skipped because integration tests covered the
+risk" to "smoke is now genuinely needed because real-user-driven
+end-to-end behavior is testable for the first time in Phase 2."
+
+### Phase 2 commit chain status
+
+| Commit | Status | Scope |
+|---|---|---|
+| C1 (data) | ✓ `25d1748` | Domain entities, EF configs, migration, SPEC §5.1 amendment, ADR 0008 Accepted |
+| C2 (vault) | ✓ `f31b378` | `IVaultService` — content-addressed file storage; `Vault.PhysicalDelete` permission |
+| C3 (lifecycle) | ✓ `0ae4317` | `IDocumentLifecycleService` + `IDomainEventDispatcher` + `DocumentRevisionApprovedEvent`; SignatureService gains `StageSignatureAsync` |
+| C4 (sign-as-role) | ✓ `d506ee9` | ADR 0009 Accepted; `IRoleResolutionService` + `ISignatureRolePrompter` + `SignAsRoleDialog`; `RolePermissions` plumbing across auth + bootstrap pipeline; SignatureService contract change |
+| **C5 (PDF viewer)** | ✓ this commit | ADR 0010 Accepted; Microsoft.Web.WebView2 dependency + PDF.js 5.7.284 bundled; `PdfViewerControl`; `IVaultService.GetVaultFilePathAsync`; App.xaml.cs WebView2 runtime detection |
+| C6 (UI shell) | **next** | Document list/detail VMs; submit + review dialogs; first consumer of C2 vault + C3 lifecycle + C4 prompter + C5 viewer |
+| C7 (lock inspector + print) | pending | Lock-reason chains, print stylesheets |
+| C8 (external library) | pending | ExternalDocument CRUD, compatibility flagging |
+| C9 (handoff) | pending | Phase 2 closing handoff note |
+
+### Phase 1 Follow-Ups (carry-forward unchanged)
+
+No changes in this commit. As of the prior C4 handoff:
+
+- **EventId 1001 missing on wrong-password** — deferred.
+- **Raw `Log.Information` empty SourceContext** in `OnStartup`
+  / `OnExit` — deferred; cosmetic.
+- Eight carry-overs from prior handoffs (#1 sign-in audit, #2
+  PreviousLoginUtc, #3 navigation audit, #4 pulse tint tokens,
+  #6 connection-string config, #7 AsyncLocal correlation, #8
+  inert `Serilog.Sinks.File`, #11 owned-type audit ADR).
+
+### Next-direction (next session pick)
+
+**C6 — UI shell.** The integration commit that wires C1's entities
++ C2's vault + C3's lifecycle service + C4's signature prompter +
+C5's PDF viewer into real user-facing surfaces. Probably the
+largest single commit of Phase 2 by test growth (UI ViewModels
+have substantial test surface; multiple new dialogs and views).
+
+Two real planning questions worth flagging for C6's planning
+conversation:
+
+- **(a) What's the minimum viable C6?** Could be one large commit
+  covering list + detail + submit + review-sign, OR split into
+  C6a (list + detail with viewer) and C6b (submit + review-sign
+  dialogs). The split would let each piece get its own focused
+  review cycle and smoke window; the unified commit lands the
+  whole user-facing surface together. Worth discussing.
+
+- **(b) Does C6 introduce the upload-the-PDF flow?** The
+  `Document.EditDraft` permission was seeded in C1 but no service
+  consumes it yet. C6 either ships the upload flow (calls
+  `IVaultService.StoreAsync` + attaches the resulting `VaultBlob`
+  to the current revision) or defers it. The viewer (C5) needs a
+  PDF to display; without an upload flow, the only PDFs the
+  viewer can show are ones planted directly in the vault via
+  test fixtures. Lean toward including a minimal upload flow in
+  C6 — otherwise the smoke story is "open a file the test
+  fixture put there" which isn't a real user gesture.
+
+C6 deserves the careful implementation-plan-first review cycle —
+largest surface, first commit that exercises all prior Phase 2
+infrastructure end-to-end, real smoke window opens.
+
+Working tree clean as of this entry's commit.
+
+---
