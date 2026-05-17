@@ -96,9 +96,10 @@ public class BootstrapServiceTests : ServiceIntegrationTestBase
             // Eleven RolePermission rows linking the Administrator
             // role to every Phase 1 system permission. Scoped to the
             // Administrator role's id — the seeded QualityManager
-            // role also has RolePermission rows (12 of them, one per
-            // Phase 2 document permission except Document.AssignReviewers)
-            // and would inflate an unfiltered count.
+            // role also has RolePermission rows (13 of them, the full
+            // Phase 2 document permission set after ADR 0011's
+            // amendment) and the seeded DocumentAuthor role has 5
+            // more, so an unfiltered count would be inflated.
             var rolePermissions = await ctx.RolePermissions
                 .Where(rp => rp.RoleId == adminRole.Id)
                 .ToListAsync(Ct);

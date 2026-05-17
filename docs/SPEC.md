@@ -1,6 +1,6 @@
 # EasySynQ — Comprehensive Coding Project Prompt
 **A Quality Management System for ISO 9001:2015 Compliance**
-**Revision 3.4 · May 2026**
+**Revision 3.5 · May 2026**
 
 ---
 
@@ -15,6 +15,7 @@
 | 3.2 | May 2026 | Clarified §3.7: `EffectiveFromUtc` may be in the future to support pre-scheduled configuration changes (e.g., a tolerance change that takes effect next Monday). The as-of resolver handles not-yet-active versions naturally; no new state required. |
 | 3.3 | May 2026 | Amended §3.4 Authorization to permission-based with admin-defined role bundles (ADR 0007). Roles are no longer prescribed as a hardcoded list; the Administrator role is reserved for IT-side system administration, and operational roles are admin-created. Per-user permission grants are effective-dated alongside role assignments and role-permission links. |
 | 3.4 | May 2026 | Amended §5.1 Document Controller per ADR 0008. Refined lifecycle state machine (Approved distinct from Active; bidirectional Draft ↔ In Review; Retire as terminal split from Supersede). Assigned-reviewer model with author + N reviewer signatures replaces the QM-only approval gate. Document permissions catalog seeded by Phase 2 migration; default `QualityManager` role seeded with the documented permission set, `Document.AssignReviewers` intentionally unassigned by default so organizations choose between small-shop and strict-gatekeeper policies without code changes. Retraining cascade published as `DocumentRevisionApprovedEvent` (handler lands in Phase 4 Competency Matrix). |
+| 3.5 | May 2026 | Amended §5.1 Document Controller Authorization paragraph per ADR 0011. Two operational roles are now seeded by the Phase 2 migration chain: `DocumentAuthor` (new — Document.Create + EditDraft + HardDelete + SubmitForReview + AssignReviewers) supports the author-can-submit small-shop default, and `QualityManager` is amended to grant `Document.AssignReviewers`. The prior 3.4 default ("AssignReviewers intentionally unassigned, organizations choose the policy via admin UI") was reversed after the C6b smoke walk showed every walk had to paper over the gap with four direct UserPermission grants. Strict-gatekeeper deployments now reach the policy by revoking authoring permissions from `DocumentAuthor` rather than granting them on first run. |
 
 ---
 
@@ -250,7 +251,7 @@ with a return edge `In Review → Draft` when reviewers require author changes.
 
 **Compatibility Flagging:** When an External document is updated to a new revision, all linked Internal documents receive a "Compatibility Review Required" flag until a user with the appropriate permission signs off or a new Internal revision is approved.
 
-**Authorization:** Permission-based per ADR 0007. The Document permissions catalog (`Document.Create`, `Document.EditDraft`, `Document.SubmitForReview`, `Document.AssignReviewers`, `Document.Review`, `Document.ReturnForEdits`, `Document.Retire`, `Document.SoftDelete`, `Document.HardDelete`, `Document.ViewArchived`, plus `ExternalDocument.*` and `DocumentLink.Manage`) is seeded in Phase 2's migration. A default `QualityManager` role is seeded with all Document and ExternalDocument permissions assigned (organizations can modify via admin UI when it ships). `Document.AssignReviewers` is intentionally not assigned to QualityManager by default — organizations grant it to author roles for the small-shop default or restrict to QualityManager for the strict-gatekeeper model.
+**Authorization:** Permission-based per ADR 0007. The Document permissions catalog (`Document.Create`, `Document.EditDraft`, `Document.SubmitForReview`, `Document.AssignReviewers`, `Document.Review`, `Document.ReturnForEdits`, `Document.Retire`, `Document.SoftDelete`, `Document.HardDelete`, `Document.ViewArchived`, plus `ExternalDocument.*` and `DocumentLink.Manage`) is seeded in Phase 2's migration. Two operational roles are seeded by Phase 2's migration chain per ADR 0011. **`DocumentAuthor`** — a generic author role granting `Document.Create`, `Document.EditDraft`, `Document.HardDelete`, `Document.SubmitForReview`, and `Document.AssignReviewers` — supports the small-shop default where users who can author drafts can also submit them. **`QualityManager`** — granting every Phase 2 document permission, including `Document.AssignReviewers` — supports both the cross-functional reviewer role and the strict-gatekeeper variant where authoring permissions are revoked from `DocumentAuthor` after first run. Organizations can rename, modify, or remove either seeded role via admin UI when it ships; the seed shape is a starting point, not a constraint.
 
 **Acceptance Criteria:**
 - Approving Rev B of an SOP makes Rev A's `Lifecycle` become `Superseded`, and Rev A becomes unselectable in production workflows.

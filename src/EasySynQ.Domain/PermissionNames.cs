@@ -188,13 +188,14 @@ public static class PermissionNames
 
     /// <summary>
     /// Permission names granted to the seeded QualityManager role at
-    /// Phase 2 migration time. Equal to <see cref="Phase2Document"/>
-    /// minus <see cref="DocumentAssignReviewers"/>. The omission is
-    /// deliberate per ADR 0008: <c>Document.AssignReviewers</c> is
-    /// granted by organizations either to author roles (small-shop
-    /// default) or restricted to QM (strict-gatekeeper policy) —
-    /// either choice is a policy decision the seeded data does not
-    /// make.
+    /// Phase 2 migration time, as amended by ADR 0011. Now equal to
+    /// <see cref="Phase2Document"/> — every Phase 2 document
+    /// permission including <see cref="DocumentAssignReviewers"/>.
+    /// The amendment was added by
+    /// <c>AddDocumentAuthorRoleAndAmendQualityManagerSeed</c>;
+    /// strict-gatekeeper deployments revoke authoring permissions
+    /// from the seeded <see cref="DocumentAuthorDefaults"/> role
+    /// instead of pruning QualityManager.
     /// </summary>
     public static IReadOnlyList<string> QualityManagerDefaults { get; } =
     [
@@ -210,5 +211,33 @@ public static class PermissionNames
         ExternalDocumentCreate,
         ExternalDocumentUpdateRevision,
         DocumentLinkManage,
+        DocumentAssignReviewers,
+    ];
+
+    /// <summary>
+    /// Permission names granted to the seeded
+    /// <c>DocumentAuthor</c> role at Phase 2 migration time (ADR
+    /// 0011). The five author-side permissions support the
+    /// small-shop default where a user who can author drafts can
+    /// also submit them for review. Organizations rename, reshape,
+    /// or replace this role via admin UI when it ships;
+    /// strict-gatekeeper deployments revoke the submission-related
+    /// permissions from this role (or leave it unassigned to
+    /// operational users) and rely on <see cref="QualityManagerDefaults"/>
+    /// alone.
+    /// </summary>
+    /// <remarks>
+    /// Order matches the migration's <c>RolePermission</c> insert
+    /// order so the migration-seed test's
+    /// <c>BeEquivalentTo</c> assertion shape stays stable across
+    /// review.
+    /// </remarks>
+    public static IReadOnlyList<string> DocumentAuthorDefaults { get; } =
+    [
+        DocumentCreate,
+        DocumentEditDraft,
+        DocumentSubmitForReview,
+        DocumentAssignReviewers,
+        DocumentHardDelete,
     ];
 }
