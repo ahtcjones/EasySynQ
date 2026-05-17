@@ -219,4 +219,145 @@
         <Setter Property="Background" Value="Transparent" />
     </Style>
 
+    <!--
+        ToolTip: dark-theme implicit style. The framework's default ToolTip
+        renders a light-tan SystemColors.InfoBrush background with black
+        text — illegible against EasySynQ's dark host theme. Retemplate
+        around a Border so the surface, foreground, and a 1px Border line
+        all consume palette tokens; rounded corners (CornerRadius="4")
+        match the popover/banner treatment elsewhere in the shell.
+
+        Affects every ToolTip in the app (e.g., the C7b lock-glyph tooltips
+        on the detail-view status pill and the list-view lock column, plus
+        any MainWindow chrome tooltips). No keyed variant — every tooltip
+        wants the dark treatment.
+    -->
+    <Style TargetType="ToolTip">
+        <Setter Property="Background" Value="{StaticResource BrushSurface2}" />
+        <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+        <Setter Property="BorderBrush" Value="{StaticResource BrushBorder}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="8,4" />
+        <Setter Property="FontFamily" Value="{StaticResource FontFamilyBody}" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="HasDropShadow" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ToolTip">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="4"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--
+        DataGrid: dark-theme defaults for the DocumentListView grid (the
+        only DataGrid in the app today). The view's local DataGrid
+        attribute setup already covers Background / RowBackground /
+        AlternatingRowBackground / Foreground / BorderThickness — these
+        implicit setters fill in the remaining chrome (grid-line colors,
+        scrollbar surrounds). Per-view overrides win when present.
+    -->
+    <Style TargetType="DataGrid">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+        <Setter Property="BorderBrush" Value="{StaticResource BrushBorder}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="HorizontalGridLinesBrush" Value="{StaticResource BrushBorder}" />
+        <Setter Property="VerticalGridLinesBrush" Value="{StaticResource BrushBorder}" />
+        <Setter Property="RowBackground" Value="Transparent" />
+        <Setter Property="AlternatingRowBackground" Value="{StaticResource BrushSurface2}" />
+    </Style>
+
+    <!--
+        DataGridColumnHeader: dark surface with dim text, semibold and
+        slightly smaller than body so the header row reads as
+        metadata, not as content. The framework's default template uses
+        SystemColors.ControlBrushKey for the background — light gray that
+        bleeds through against the dark host theme. Retemplate around a
+        Border so Background / Foreground / BorderBrush all consume
+        palette tokens, with a 1px bottom-only border line separating
+        the header row from the data rows below.
+    -->
+    <Style TargetType="DataGridColumnHeader">
+        <Setter Property="Background" Value="{StaticResource BrushSurface2}" />
+        <Setter Property="Foreground" Value="{StaticResource BrushTextDim}" />
+        <Setter Property="BorderBrush" Value="{StaticResource BrushBorder}" />
+        <Setter Property="BorderThickness" Value="0,0,0,1" />
+        <Setter Property="Padding" Value="8,6" />
+        <Setter Property="FontFamily" Value="{StaticResource FontFamilyBody}" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="DataGridColumnHeader">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter Margin="{TemplateBinding Padding}"
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          RecognizesAccessKey="True" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!--
+        DataGridRow: hover lifts to Surface3; selection uses AccentDim so
+        the selected row is visible against alternating-row striping. The
+        framework default uses SystemColors.HighlightBrushKey (Windows blue
+        selection) which clashes with the palette.
+    -->
+    <Style TargetType="DataGridRow">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{StaticResource BrushSurface3}" />
+            </Trigger>
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="{StaticResource BrushAccentDim}" />
+                <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <!--
+        DataGridCell: clear the framework's default cell-selection chrome
+        so the selected-row appearance comes from the DataGridRow style
+        above (consistent surface lift) rather than per-cell tinting.
+    -->
+    <Style TargetType="DataGridCell">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource BrushText}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="DataGridCell">
+                    <Border Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter Margin="6,4"
+                                          VerticalAlignment="Center" />
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
 </ResourceDictionary>

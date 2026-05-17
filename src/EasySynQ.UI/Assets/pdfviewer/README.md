@@ -15,7 +15,11 @@ The `EasySynQ.UI.csproj` Content Include copies this whole folder to the build o
 
 Three files in this folder are EasySynQ-modified, NOT verbatim from the upstream PDF.js distribution:
 
-1. **`web/easysynq-overrides.css`** — hides the download and open-file toolbar affordances per SPEC §5.1's read-only-inside-the-app requirement. Targets PDF.js 5.7.284's specific element IDs; see the file's header for the IDs and rationale.
+1. **`web/easysynq-overrides.css`** — two scopes per the file's header:
+   - **Scope 1 (ADR 0010 C5):** hides the download and open-file toolbar affordances per SPEC §5.1's read-only-inside-the-app requirement.
+   - **Scope 2 (ADR 0010 C7c):** retunes the toolbar's light-mode surfaces (toolbar container, buttons, input fields, find bar, overflow menu) to the EasySynQ dark palette so the page-number / zoom / search controls stay legible against the host theme. Hex values mirror `Resources/Colors.xaml`; a palette change must touch both files.
+
+   Both scopes target PDF.js 5.7.284's specific element IDs and class names. See the file's per-scope comment blocks for the full inventory.
 
 2. **`web/viewer.html`** is patched with **one line** inserted just before the closing `</head>` tag:
 
@@ -48,12 +52,22 @@ When bumping PDF.js to a newer release:
 2. Delete this folder's `build/` and `web/` contents (keep `LICENSE` if the new version updates it).
 3. Extract the new zip into this folder (replacing `build/`, `web/`, `LICENSE`).
 4. **Re-apply the viewer.html `<link>` patch** — search for the existing `<link rel="stylesheet" href="viewer.css" />` line in `web/viewer.html` and add the EasySynQ override `<link>` per the comment block in `easysynq-overrides.css`.
-5. **Re-verify the override CSS selectors.** Open the new `web/viewer.html` and search for the toolbar element IDs the override targets:
+5. **Re-verify the override CSS selectors.** Open the new `web/viewer.html` and search for the toolbar element IDs and class names the two override scopes target:
+
+   **Scope 1 (download / open-file hide):**
    - `#downloadButton` (was `#download` in PDF.js 4.x; renamed in 5.x)
    - `#secondaryDownload` (overflow-menu download)
    - `#secondaryOpenFile` (overflow-menu open-file)
 
-   If Mozilla has renamed any of these, update `easysynq-overrides.css` to match. Run the app and confirm the download/open-file affordances are hidden.
+   **Scope 2 (dark-theme toolbar):**
+   - `#toolbarContainer`, `#toolbarViewer` — outer toolbar wrappers
+   - `#secondaryToolbar` — overflow (≡) menu container
+   - `#findbar` — find-on-page overlay strip
+   - `.toolbarButton`, `.secondaryToolbarButton` — clickable buttons
+   - `.toolbarField`, `#pageNumber`, `#scaleSelect`, `#findInput` — input controls
+   - `.toolbarLabel`, `#findResultsCount` — status labels
+
+   If Mozilla has renamed any selector, update `easysynq-overrides.css` to match. Run the app and confirm both the download/open-file affordances are hidden AND the toolbar reads cleanly against the dark host theme (page number / zoom controls / search input visible — not light-gray-on-white).
 6. **Re-apply the HOSTED_VIEWER_ORIGINS patch in `viewer.mjs`.** Search the file for `HOSTED_VIEWER_ORIGINS = new Set(`. The upstream literal contains the three Mozilla origins (`"null"`, `"http://mozilla.github.io"`, `"https://mozilla.github.io"`). Add `"https://easysynq-pdfviewer.local"` as a fourth entry. Verify the surrounding `validateFileURL` function shape still matches what the patch assumes — if Mozilla refactors the validation logic (e.g., extracts the allowlist to a config import, removes the IIFE block, renames the function), the patch may need a different form. If you cannot find `HOSTED_VIEWER_ORIGINS` at all in the new version, validateFileURL may have been removed entirely; smoke a fresh PDF render to confirm no Layer-3 rejection surfaces.
 7. Update this README's "Bundled version" header.
 8. Commit. The commit message should call out the version bump and any selector or patch changes that surfaced during steps 5-6.

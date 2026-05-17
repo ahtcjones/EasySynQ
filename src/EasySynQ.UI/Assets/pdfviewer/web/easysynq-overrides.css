@@ -1,16 +1,32 @@
 /*
- * EasySynQ overrides for the bundled PDF.js viewer (ADR 0010 C5).
+ * EasySynQ overrides for the bundled PDF.js viewer (ADR 0010 C5 + C7c).
  *
- * Hides the download and open-file affordances in PDF.js's toolbar
- * and overflow menu. SPEC §5.1 documents are read-only inside the
- * app; users acquire copies through controlled export (a future
- * commit), not browser-style downloads. Open-file is also hidden —
- * "documents are read-only inside the app" implies the user does
- * not load arbitrary other documents through the viewer either.
+ * Two scopes:
+ *   1. Hide download/open-file affordances per SPEC §5.1's
+ *      read-only-inside-the-app requirement.
+ *   2. Retune the toolbar's light-mode surfaces to the EasySynQ dark
+ *      palette so the page number, zoom controls, search input, and
+ *      overflow menu remain legible against the host theme (ADR 0010
+ *      C7c — the toolbar-theming SCRATCHPAD item collected with
+ *      C7 visual polish).
  *
  * Element IDs verified against PDF.js 5.7.284 (the bundled version).
  * If you bump PDF.js, re-verify the IDs in web/viewer.html and
- * update the selectors below if Mozilla has renamed them.
+ * update the selectors below if Mozilla has renamed them. The
+ * folder's README documents the bump checklist.
+ *
+ * !important is required throughout to override PDF.js's own
+ * default styling.
+ */
+
+/* ───────────────────────────────────────────────────────────────
+ * Scope 1 — Hide download + open-file affordances (ADR 0010 C5).
+ *
+ * SPEC §5.1 documents are read-only inside the app; users acquire
+ * copies through controlled export (a future commit), not
+ * browser-style downloads. Open-file is also hidden — "documents
+ * are read-only inside the app" implies the user does not load
+ * arbitrary other documents through the viewer either.
  *
  * IDs in 5.7.284:
  *   #downloadButton    — primary toolbar download/save button.
@@ -21,11 +37,93 @@
  *   - #download was renamed to #downloadButton.
  *   - The primary #openFile toolbar button was removed in 5.x;
  *     open-file is only in the overflow menu now.
- *
- * !important is required to override PDF.js's own display rules.
- */
+ * ─────────────────────────────────────────────────────────────── */
 #downloadButton,
 #secondaryDownload,
 #secondaryOpenFile {
     display: none !important;
+}
+
+/* ───────────────────────────────────────────────────────────────
+ * Scope 2 — Dark-theme toolbar overrides (ADR 0010 C7c).
+ *
+ * PDF.js ships a light-mode toolbar that becomes unreadable against
+ * the EasySynQ dark host theme — page number, zoom controls, and
+ * search input render as light-gray-on-white instead of light-on-
+ * dark. These rules retune toolbar surfaces, buttons, and input
+ * fields to match the EasySynQ palette tokens from
+ * Resources/Colors.xaml.
+ *
+ * Hex values are intentionally hardcoded (per the C7b/C7c decision
+ * captured during planning): the palette has been stable since the
+ * prototype, no theme-switcher exists, and runtime injection would
+ * couple PdfViewerControl init to color resolution for no current
+ * benefit. The comments below cross-reference each hex to its
+ * Colors.xaml token name; a future palette change must touch both
+ * files. The README's bump checklist also tags this scope.
+ *
+ * Selector inventory (PDF.js 5.7.284 — verified against
+ * web/viewer.html):
+ *   #toolbarContainer   — outermost top-of-viewer toolbar wrapper.
+ *   #toolbarViewer      — main toolbar inside the container.
+ *   #secondaryToolbar   — overflow (≡) menu container.
+ *   #findbar            — the find-on-page overlay strip.
+ *   .toolbarButton              — primary toolbar buttons.
+ *   .secondaryToolbarButton     — overflow menu buttons.
+ *   .toolbarField               — generic text-input class.
+ *   #pageNumber                 — page-number input.
+ *   #scaleSelect                — zoom level dropdown.
+ *   #findInput                  — find-bar text input.
+ *   #findResultsCount, .toolbarLabel — labels next to inputs.
+ * ─────────────────────────────────────────────────────────────── */
+
+/* Toolbar surfaces — outer container, primary toolbar, secondary
+   (overflow) menu, find bar. */
+#toolbarContainer,
+#toolbarViewer,
+#secondaryToolbar,
+#findbar {
+    background-color: #1D242E !important; /* Colors.xaml ColorSurface2 */
+    color: #E6EDF3 !important; /* Colors.xaml ColorText */
+    border-color: #2A3441 !important; /* Colors.xaml ColorBorder */
+}
+
+/* Toolbar buttons — default state. Transparent background so the
+   button blends with the toolbar surface above; foreground icons
+   are SVG sprites that pick up `color`. */
+.toolbarButton,
+.secondaryToolbarButton {
+    color: #E6EDF3 !important; /* Colors.xaml ColorText */
+    background-color: transparent !important;
+}
+
+/* Toolbar buttons — hover / focus. Lift to Surface3 so the
+   interactive state is visible against the Surface2 toolbar bg. */
+.toolbarButton:hover,
+.toolbarButton:focus,
+.secondaryToolbarButton:hover,
+.secondaryToolbarButton:focus {
+    background-color: #252D39 !important; /* Colors.xaml ColorSurface3 */
+    color: #E6EDF3 !important; /* Colors.xaml ColorText */
+}
+
+/* Input fields (page number, scale selector, find input). Use
+   Surface3 to distinguish input affordance from the toolbar
+   background. */
+.toolbarField,
+#pageNumber,
+#scaleSelect,
+#findInput {
+    background-color: #252D39 !important; /* Colors.xaml ColorSurface3 */
+    color: #E6EDF3 !important; /* Colors.xaml ColorText */
+    border-color: #2A3441 !important; /* Colors.xaml ColorBorder */
+}
+
+/* Labels and status text (find-bar message, results count, generic
+   toolbar labels). Dimmed to match the prototype's secondary-text
+   discipline — these are status indicators, not primary content. */
+.toolbarLabel,
+#findResultsCount,
+#findbar .toolbarLabel {
+    color: #9AA7B4 !important; /* Colors.xaml ColorTextDim */
 }
