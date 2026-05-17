@@ -74,6 +74,7 @@ public class DocumentListViewModelTests
 
         var prompter = new Mock<ICreateDocumentPrompter>();
         var lifecycle = new Mock<IDocumentLifecycleService>();
+        var lockInspectorPrompter = new Mock<EasySynQ.UI.LockInspector.ILockInspectorPrompter>();
         var clock = new FixedClock(Now);
         var currentUser = new MutableCurrentUserAccessor
         {
@@ -101,6 +102,7 @@ public class DocumentListViewModelTests
             prompter.Object,
             lifecycle.Object,
             clock,
+            lockInspectorPrompter.Object,
             DetailFactory);
 
         return (vm, docs, revs, userRepo, prompter, lifecycle, currentUser, detailCalls);
@@ -373,6 +375,8 @@ public class DocumentListViewModelTests
         detailRevs.Setup(r => r.GetLatestRevisionAsync(doc.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync(rev);
 
+        var lockInspectorPrompter = new Mock<EasySynQ.UI.LockInspector.ILockInspectorPrompter>();
+
         DocumentDetailViewModel? constructedDetail = null;
         DocumentDetailViewModel DetailFactory(Document d)
         {
@@ -393,14 +397,15 @@ public class DocumentListViewModelTests
                 Mock.Of<EasySynQ.UI.Documents.EditMetadata.IEditMetadataPrompter>(),
                 Mock.Of<EasySynQ.UI.Documents.SubmitForReview.ISubmitForReviewPrompter>(),
                 Mock.Of<EasySynQ.UI.Documents.ReviewAndSign.IReviewAndSignPrompter>(),
-                Mock.Of<EasySynQ.UI.Documents.ReturnToDraft.IReturnToDraftPrompter>());
+                Mock.Of<EasySynQ.UI.Documents.ReturnToDraft.IReturnToDraftPrompter>(),
+                lockInspectorPrompter.Object);
             return constructedDetail;
         }
 
         var vm = new DocumentListViewModel(
             docs.Object, revs.Object, userRepo.Object,
             currentUser, prompter.Object, lifecycle.Object,
-            clock, DetailFactory);
+            clock, lockInspectorPrompter.Object, DetailFactory);
 
         await vm.LoadCommand.ExecuteAsync(null);
         vm.Items.Should().ContainSingle();
@@ -488,6 +493,8 @@ public class DocumentListViewModelTests
             ],
         };
 
+        var lockInspectorPrompter2 = new Mock<EasySynQ.UI.LockInspector.ILockInspectorPrompter>();
+
         var constructed = new List<DocumentDetailViewModel>();
         DocumentDetailViewModel DetailFactory(Document d)
         {
@@ -505,7 +512,8 @@ public class DocumentListViewModelTests
                 Mock.Of<EasySynQ.UI.Documents.EditMetadata.IEditMetadataPrompter>(),
                 Mock.Of<EasySynQ.UI.Documents.SubmitForReview.ISubmitForReviewPrompter>(),
                 Mock.Of<EasySynQ.UI.Documents.ReviewAndSign.IReviewAndSignPrompter>(),
-                Mock.Of<EasySynQ.UI.Documents.ReturnToDraft.IReturnToDraftPrompter>());
+                Mock.Of<EasySynQ.UI.Documents.ReturnToDraft.IReturnToDraftPrompter>(),
+                lockInspectorPrompter2.Object);
             constructed.Add(dvm);
             return dvm;
         }
@@ -513,7 +521,7 @@ public class DocumentListViewModelTests
         var vm = new DocumentListViewModel(
             docs.Object, revs.Object, userRepo.Object,
             currentUser, new Mock<ICreateDocumentPrompter>().Object,
-            lifecycle.Object, clock, DetailFactory);
+            lifecycle.Object, clock, lockInspectorPrompter2.Object, DetailFactory);
 
         await vm.LoadCommand.ExecuteAsync(null);
 

@@ -35,6 +35,15 @@ namespace EasySynQ.UI.Documents.List;
 /// plain string).</param>
 /// <param name="AuthorDisplay">Resolved author username, or a
 /// placeholder when the user row was not found.</param>
+/// <param name="LockedEntityType">Canonical lock-entity-type string
+/// when the row represents a locked entity, or <see langword="null"/>
+/// when the row is not locked (per ADR 0012 C7b). The lock-glyph cell
+/// renders only when this is non-null; clicking the glyph opens the
+/// lock inspector for the named <c>(LockedEntityType, LockedEntityId)</c>
+/// pair.</param>
+/// <param name="LockedEntityId">Canonical string-form id of the
+/// locked entity matching <paramref name="LockedEntityType"/>, or
+/// <see langword="null"/> when not locked.</param>
 public sealed record DocumentListItem(
     Guid DocumentId,
     string Number,
@@ -42,4 +51,6 @@ public sealed record DocumentListItem(
     string CurrentRevisionLabel,
     DocumentLifecycle Lifecycle,
     string LifecycleDisplay,
-    string AuthorDisplay);
+    string AuthorDisplay,
+    string? LockedEntityType,
+    string? LockedEntityId);

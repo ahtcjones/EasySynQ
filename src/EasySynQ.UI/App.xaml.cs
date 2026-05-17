@@ -24,6 +24,7 @@ using EasySynQ.UI.Documents.ReviewAndSign;
 using EasySynQ.UI.Documents.SubmitForReview;
 using EasySynQ.UI.Documents.List;
 using EasySynQ.UI.Identity;
+using EasySynQ.UI.LockInspector;
 using EasySynQ.UI.Login;
 using EasySynQ.UI.Navigation;
 using EasySynQ.UI.Pulse;
@@ -341,6 +342,11 @@ public partial class App : Application
         // dialog captures the required reason and forwards to the
         // lifecycle service.
         services.AddSingleton<IReturnToDraftPrompter, ReturnToDraftPrompter>();
+        // C7b — lock-inspector prompter (ADR 0012). Singleton like
+        // the other prompters; the prompter holds the scoped lock-
+        // reason repository + resolver registry as captive
+        // dependencies, matching the project-wide prompter pattern.
+        services.AddSingleton<ILockInspectorPrompter, LockInspectorPrompter>();
 
         // List view model — transient so navigating to the documents
         // entry produces a fresh VM each time (the factory is

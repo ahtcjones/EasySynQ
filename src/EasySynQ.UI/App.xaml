@@ -25,6 +25,7 @@
                 instance per converter is sufficient.
             -->
             <conv:BoolToVisibilityConverter x:Key="BoolToVisibility" />
+            <conv:InvertBoolToVisibilityConverter x:Key="InvertBoolToVisibility" />
             <conv:NullOrEmptyToVisibilityConverter x:Key="NullOrEmptyToVisibility" />
             <conv:NullToVisibilityConverter x:Key="NullToVisibility" />
             <conv:ReferenceEqualityMultiConverter x:Key="ReferenceEquality" />

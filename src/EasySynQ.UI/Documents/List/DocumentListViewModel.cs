@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -10,6 +11,7 @@ using EasySynQ.Services.Documents;
 using EasySynQ.Services.Time;
 using EasySynQ.UI.Documents.CreateDocument;
 using EasySynQ.UI.Documents.Detail;
+using EasySynQ.UI.LockInspector;
 using EasySynQ.UI.Navigation;
 
 namespace EasySynQ.UI.Documents.List;
@@ -50,6 +52,7 @@ public sealed partial class DocumentListViewModel : ObservableObject, IDirtyStat
     private readonly ICreateDocumentPrompter _createPrompter;
     private readonly IDocumentLifecycleService _lifecycle;
     private readonly IClock _clock;
+    private readonly ILockInspectorPrompter _lockInspectorPrompter;
     private readonly Func<Document, DocumentDetailViewModel> _detailFactory;
 
     /// <summary>Constructs the view model over its dependencies.</summary>
@@ -61,6 +64,7 @@ public sealed partial class DocumentListViewModel : ObservableObject, IDirtyStat
         ICreateDocumentPrompter createPrompter,
         IDocumentLifecycleService lifecycle,
         IClock clock,
+        ILockInspectorPrompter lockInspectorPrompter,
         Func<Document, DocumentDetailViewModel> detailFactory)
     {
         ArgumentNullException.ThrowIfNull(documents);
@@ -70,6 +74,7 @@ public sealed partial class DocumentListViewModel : ObservableObject, IDirtyStat
         ArgumentNullException.ThrowIfNull(createPrompter);
         ArgumentNullException.ThrowIfNull(lifecycle);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(lockInspectorPrompter);
         ArgumentNullException.ThrowIfNull(detailFactory);
 
         _documents = documents;
@@ -79,6 +84,7 @@ public sealed partial class DocumentListViewModel : ObservableObject, IDirtyStat
         _createPrompter = createPrompter;
         _lifecycle = lifecycle;
         _clock = clock;
+        _lockInspectorPrompter = lockInspectorPrompter;
         _detailFactory = detailFactory;
     }
 
@@ -245,12 +251,39 @@ public sealed partial class DocumentListViewModel : ObservableObject, IDirtyStat
                 CurrentRevisionLabel: string.Empty,
                 Lifecycle: Domain.Enums.DocumentLifecycle.Draft,
                 LifecycleDisplay: string.Empty,
-                AuthorDisplay: UnknownAuthorDisplay);
+                AuthorDisplay: UnknownAuthorDisplay,
+                LockedEntityType: null,
+                LockedEntityId: null);
         }
 
         var author = users.TryGetValue(latest.AuthorUserId, out var name)
             ? name
             : UnknownAuthorDisplay;
+
+        // Lock-state projection (ADR 0012 C7b). The grid renders a
+        // lock-glyph cell only when this row represents a locked
+        // entity; the (Type, Id) pair drives the inspector lookup.
+        // Document-level lock (Retired) takes precedence in the row
+        // projection — when both the Document is Retired and a
+        // revision is Archived, the parent retirement is the more
+        // useful inspection anchor (the resolver's chain templates
+        // navigate from revision → parent already, so leading with
+        // Document avoids a redundant click-through).
+        string? lockedType = null;
+        string? lockedId = null;
+        if (doc.RetiredAtUtc is not null)
+        {
+            lockedType = Domain.LockedEntityTypes.Document;
+            lockedId = doc.Id.ToString("D", CultureInfo.InvariantCulture);
+        }
+        else if (latest.Lifecycle is not Domain.Enums.DocumentLifecycle.Draft)
+        {
+            // Every non-Draft revision is in a lockout state per ADR
+            // 0008's lifecycle model (InReview, Approved, Superseded,
+            // Archived all set LockedAtUtc and prohibit editing).
+            lockedType = Domain.LockedEntityTypes.DocumentRevision;
+            lockedId = latest.Id.ToString("D", CultureInfo.InvariantCulture);
+        }
 
         return new DocumentListItem(
             DocumentId: doc.Id,
@@ -260,7 +293,9 @@ public sealed partial class DocumentListViewModel : ObservableObject, IDirtyStat
             Lifecycle: latest.Lifecycle,
             LifecycleDisplay: DocumentLifecycleDisplay.Format(
                 latest.Lifecycle, latest.EffectiveFromUtc, asOf),
-            AuthorDisplay: author);
+            AuthorDisplay: author,
+            LockedEntityType: lockedType,
+            LockedEntityId: lockedId);
     }
 
     /// <summary>
@@ -315,6 +350,36 @@ public sealed partial class DocumentListViewModel : ObservableObject, IDirtyStat
         }
 
         await LoadAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Opens the lock inspector popover for the supplied row's locked
+    /// entity (ADR 0012 C7b). The row's lock-glyph cell binds its
+    /// <c>Button.Command</c> to this command with the
+    /// <see cref="DocumentListItem"/> as <c>CommandParameter</c>.
+    /// </summary>
+    /// <remarks>
+    /// A no-op when the row carries no lock (defensive — the cell is
+    /// hidden in that state, so the command should not fire, but
+    /// guarding here avoids surfacing a popover for a row whose
+    /// projection has not yet rendered the lock state).
+    /// </remarks>
+    [RelayCommand]
+    private async Task OpenLockInspectorAsync(
+        DocumentListItem? item,
+        CancellationToken cancellationToken)
+    {
+        if (item is null
+            || string.IsNullOrWhiteSpace(item.LockedEntityType)
+            || string.IsNullOrWhiteSpace(item.LockedEntityId))
+        {
+            return;
+        }
+
+        await _lockInspectorPrompter.OpenAsync(
+            item.LockedEntityType,
+            item.LockedEntityId,
+            cancellationToken);
     }
 
     /// <inheritdoc />

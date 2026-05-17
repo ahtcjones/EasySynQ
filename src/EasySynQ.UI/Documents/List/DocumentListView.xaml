@@ -100,6 +100,36 @@
                         <DataGridTextColumn Header="Status"
                                             Binding="{Binding LifecycleDisplay}"
                                             Width="Auto" />
+                        <!-- Lock-glyph cell (ADR 0012 C7b).
+                             Renders a clickable red lock when the row's
+                             entity is in a lockout state; the cell's
+                             button is bound to the list VM's
+                             OpenLockInspectorCommand with the row item
+                             as parameter so the prompter inspects the
+                             right (LockedEntityType, LockedEntityId).
+                             Header is intentionally blank — the column's
+                             meaning is conveyed by the glyph itself plus
+                             the row tooltip. -->
+                        <DataGridTemplateColumn Header="" Width="Auto">
+                            <DataGridTemplateColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Command="{Binding DataContext.OpenLockInspectorCommand,
+                                                              RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                            CommandParameter="{Binding}"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Padding="6,0"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            ToolTip="Why is this locked?"
+                                            Visibility="{Binding LockedEntityType, Converter={StaticResource NullOrEmptyToVisibility}}">
+                                        <TextBlock Text="🔒"
+                                                   Foreground="{StaticResource BrushRed}"
+                                                   Style="{StaticResource TextStyleMonoSmall}" />
+                                    </Button>
+                                </DataTemplate>
+                            </DataGridTemplateColumn.CellTemplate>
+                        </DataGridTemplateColumn>
                     </DataGrid.Columns>
                 </DataGrid>
             </Border>

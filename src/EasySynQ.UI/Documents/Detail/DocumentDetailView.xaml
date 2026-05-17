@@ -49,23 +49,43 @@
                            Margin="0,2,0,0" />
             </StackPanel>
 
-            <!-- Status pill -->
-            <Border Grid.Row="0" Grid.Column="1"
-                    Background="{StaticResource BrushSurface3}"
-                    CornerRadius="14"
-                    Padding="12,4,12,4"
-                    VerticalAlignment="Center">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="{Binding CurrentRevisionLabel}"
-                               Style="{StaticResource TextStyleMonoSmall}"
-                               Foreground="{StaticResource BrushText}"
-                               Margin="0,0,8,0" />
-                    <TextBlock Text="·" Foreground="{StaticResource BrushTextFaint}" Margin="0,0,8,0" />
-                    <TextBlock Text="{Binding LifecycleDisplay}"
-                               Style="{StaticResource TextStyleMonoSmall}"
-                               Foreground="{StaticResource BrushTextDim}" />
-                </StackPanel>
-            </Border>
+            <!-- Status pill + lock-glyph affordance.
+                 The lock-glyph button is only visible when the current
+                 entity is in a lockout state (ADR 0012 C7b); clicking
+                 it opens the lock-inspector popover via the prompter.
+                 The pill itself stays purely informational so users
+                 don't accidentally open the inspector when reading
+                 the lifecycle label. -->
+            <StackPanel Grid.Row="0" Grid.Column="1"
+                        Orientation="Horizontal"
+                        VerticalAlignment="Center">
+                <Button Command="{Binding OpenLockInspectorCommand}"
+                        Background="Transparent"
+                        BorderThickness="0"
+                        Padding="6,2"
+                        Margin="0,0,8,0"
+                        ToolTip="Why is this locked?"
+                        Visibility="{Binding CanOpenLockInspector, Converter={StaticResource BoolToVisibility}}">
+                    <TextBlock Text="🔒"
+                               Foreground="{StaticResource BrushRed}"
+                               Style="{StaticResource TextStyleMonoSmall}" />
+                </Button>
+                <Border Background="{StaticResource BrushSurface3}"
+                        CornerRadius="14"
+                        Padding="12,4,12,4"
+                        VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding CurrentRevisionLabel}"
+                                   Style="{StaticResource TextStyleMonoSmall}"
+                                   Foreground="{StaticResource BrushText}"
+                                   Margin="0,0,8,0" />
+                        <TextBlock Text="·" Foreground="{StaticResource BrushTextFaint}" Margin="0,0,8,0" />
+                        <TextBlock Text="{Binding LifecycleDisplay}"
+                                   Style="{StaticResource TextStyleMonoSmall}"
+                                   Foreground="{StaticResource BrushTextDim}" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
         </Grid>
 
         <!-- C6b: Last return-to-draft reason. Visible only when the

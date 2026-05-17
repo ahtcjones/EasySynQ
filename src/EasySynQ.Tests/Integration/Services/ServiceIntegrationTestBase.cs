@@ -8,6 +8,7 @@ using EasySynQ.Services.Bootstrap;
 using EasySynQ.Services.Documents;
 using EasySynQ.Services.Events;
 using EasySynQ.Services.Identity;
+using EasySynQ.Services.LockReasons;
 using EasySynQ.Services.Signatures;
 using EasySynQ.Services.Time;
 using EasySynQ.Services.Vault;
@@ -245,7 +246,18 @@ public abstract class ServiceIntegrationTestBase : IDisposable
         services.AddScoped<IDocumentRevisionRepository, DocumentRevisionRepository>();
         services.AddScoped<IDocumentReviewAssignmentRepository, DocumentReviewAssignmentRepository>();
         services.AddScoped<IDocumentReviewCommentRepository, DocumentReviewCommentRepository>();
+        services.AddScoped<ILockReasonRepository, LockReasonRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+
+        // Lock-reason resolution (ADR 0012 C7a/C7b). Mirrors the
+        // production registrations in
+        // EasySynQ.Data.Extensions.ServiceCollectionExtensions so the
+        // integration-test base composes the same graph the WPF host
+        // does. Each resolver scoped because it composes with scoped
+        // repositories; registry composes from the IEnumerable.
+        services.AddScoped<ILockReasonResolver, DocumentLockReasonResolver>();
+        services.AddScoped<ILockReasonResolver, DocumentRevisionLockReasonResolver>();
+        services.AddScoped<ILockReasonResolverRegistry, LockReasonResolverRegistry>();
 
         ServiceProvider = services.BuildServiceProvider();
 

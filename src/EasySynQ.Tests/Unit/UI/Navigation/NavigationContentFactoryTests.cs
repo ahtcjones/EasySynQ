@@ -43,6 +43,7 @@ public class NavigationContentFactoryTests
         services.AddSingleton(Mock.Of<ICreateDocumentPrompter>());
         services.AddSingleton(Mock.Of<IDocumentLifecycleService>());
         services.AddSingleton(Mock.Of<IClock>());
+        services.AddSingleton(Mock.Of<EasySynQ.UI.LockInspector.ILockInspectorPrompter>());
         services.AddSingleton<Func<Document, DocumentDetailViewModel>>(
             _ => _ => throw new NotImplementedException("test stub — not invoked"));
         services.AddTransient<DocumentListViewModel>();

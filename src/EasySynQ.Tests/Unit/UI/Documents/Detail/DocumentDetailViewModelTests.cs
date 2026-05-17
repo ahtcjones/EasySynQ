@@ -143,6 +143,7 @@ public class DocumentDetailViewModelTests
         var submitPrompter = new Mock<ISubmitForReviewPrompter>();
         var signPrompter = new Mock<IReviewAndSignPrompter>();
         var returnPrompter = new Mock<IReturnToDraftPrompter>();
+        var lockInspectorPrompter = new Mock<EasySynQ.UI.LockInspector.ILockInspectorPrompter>();
         var pathProvider = new Mock<IVaultPathProvider>();
         pathProvider.SetupGet(p => p.VaultRoot).Returns(TestVaultRoot);
 
@@ -162,7 +163,8 @@ public class DocumentDetailViewModelTests
             prompter.Object,
             submitPrompter.Object,
             signPrompter.Object,
-            returnPrompter.Object);
+            returnPrompter.Object,
+            lockInspectorPrompter.Object);
 
         return new SutBundle(
             vm, docs, revs, assignmentsRepo, commentsRepo, usersRepo,

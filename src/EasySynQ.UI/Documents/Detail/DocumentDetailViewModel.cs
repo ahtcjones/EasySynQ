@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -16,6 +17,7 @@ using EasySynQ.UI.Documents.EditMetadata;
 using EasySynQ.UI.Documents.ReturnToDraft;
 using EasySynQ.UI.Documents.ReviewAndSign;
 using EasySynQ.UI.Documents.SubmitForReview;
+using EasySynQ.UI.LockInspector;
 using EasySynQ.UI.Navigation;
 
 namespace EasySynQ.UI.Documents.Detail;
@@ -62,6 +64,7 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
     private readonly ISubmitForReviewPrompter _submitPrompter;
     private readonly IReviewAndSignPrompter _signPrompter;
     private readonly IReturnToDraftPrompter _returnPrompter;
+    private readonly ILockInspectorPrompter _lockInspectorPrompter;
 
     /// <summary>
     /// Constructs the view model bound to a specific <see cref="Document"/>.
@@ -87,7 +90,8 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
         IEditMetadataPrompter editPrompter,
         ISubmitForReviewPrompter submitPrompter,
         IReviewAndSignPrompter signPrompter,
-        IReturnToDraftPrompter returnPrompter)
+        IReturnToDraftPrompter returnPrompter,
+        ILockInspectorPrompter lockInspectorPrompter)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(documents);
@@ -105,6 +109,7 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
         ArgumentNullException.ThrowIfNull(submitPrompter);
         ArgumentNullException.ThrowIfNull(signPrompter);
         ArgumentNullException.ThrowIfNull(returnPrompter);
+        ArgumentNullException.ThrowIfNull(lockInspectorPrompter);
 
         Document = document;
         _documents = documents;
@@ -122,6 +127,7 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
         _submitPrompter = submitPrompter;
         _signPrompter = signPrompter;
         _returnPrompter = returnPrompter;
+        _lockInspectorPrompter = lockInspectorPrompter;
     }
 
     /// <summary>The Document this detail view is bound to.</summary>
@@ -145,6 +151,7 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
     [NotifyPropertyChangedFor(nameof(CanReturnToDraft))]
     [NotifyPropertyChangedFor(nameof(ShowAssignmentPanel))]
     [NotifyPropertyChangedFor(nameof(ShowCommentPanel))]
+    [NotifyPropertyChangedFor(nameof(CanOpenLockInspector))]
     [NotifyPropertyChangedFor(nameof(LastReturnToDraftReason))]
     [NotifyPropertyChangedFor(nameof(HasLastReturnToDraftReason))]
     [NotifyCanExecuteChangedFor(nameof(EditMetadataCommand))]
@@ -357,6 +364,20 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
     public bool ShowCommentPanel => IsLatestInReview;
 
     /// <summary>
+    /// <see langword="true"/> when the bound entity is currently in
+    /// a lockout state (ADR 0012 C7b) — the parent
+    /// <see cref="Document"/> is retired or the
+    /// <see cref="CurrentRevision"/>'s
+    /// <see cref="DocumentRevision.Lifecycle"/> is anything other
+    /// than <see cref="DocumentLifecycle.Draft"/>. Drives the
+    /// visibility of the lock glyph adjacent to the status pill and
+    /// the can-execute of <c>OpenLockInspectorCommand</c>.
+    /// </summary>
+    public bool CanOpenLockInspector =>
+        Document.RetiredAtUtc is not null
+        || (CurrentRevision is { } rev && rev.Lifecycle != DocumentLifecycle.Draft);
+
+    /// <summary>
     /// The most recent return-to-draft reason stamped on the
     /// current revision, or <see langword="null"/> when the
     /// revision has never been returned (or has since been
@@ -428,6 +449,10 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
         {
             Document = fresh;
             OnPropertyChanged(nameof(Document));
+            // CanOpenLockInspector also depends on Document.RetiredAtUtc;
+            // re-evaluate when the Document is refreshed (the Retire
+            // path replaces this row).
+            OnPropertyChanged(nameof(CanOpenLockInspector));
         }
 
         CurrentRevision = await _revisions.GetLatestRevisionAsync(
@@ -674,6 +699,44 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
         }
 
         await LoadAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Opens the lock-inspector popover for the bound entity (ADR
+    /// 0012 C7b). The Document's <see cref="Document.RetiredAtUtc"/>
+    /// takes precedence — a retired Document inspects at the
+    /// Document level rather than the revision level so the user
+    /// lands on the retirement signature rather than an archived
+    /// revision row. Otherwise the command inspects the
+    /// <see cref="CurrentRevision"/> at its current lifecycle state.
+    /// No-op when the entity is not in a lockout state.
+    /// </summary>
+    [RelayCommand]
+    private async Task OpenLockInspectorAsync(CancellationToken cancellationToken)
+    {
+        string lockedType;
+        string lockedId;
+        if (Document.RetiredAtUtc is not null)
+        {
+            lockedType = LockedEntityTypes.Document;
+            lockedId = Document.Id.ToString("D", CultureInfo.InvariantCulture);
+        }
+        else if (CurrentRevision is { } rev && rev.Lifecycle != DocumentLifecycle.Draft)
+        {
+            lockedType = LockedEntityTypes.DocumentRevision;
+            lockedId = rev.Id.ToString("D", CultureInfo.InvariantCulture);
+        }
+        else
+        {
+            // Not in a lock state — defensive guard. The XAML hides
+            // the trigger when CanOpenLockInspector is false, so this
+            // branch is unreachable in production but cheap to keep
+            // for refactor safety.
+            return;
+        }
+
+        await _lockInspectorPrompter.OpenAsync(
+            lockedType, lockedId, cancellationToken);
     }
 
     /// <summary>
