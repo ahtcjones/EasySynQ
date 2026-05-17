@@ -2659,3 +2659,272 @@ C9 is the closing handoff.
 Working tree clean as of this entry's commit.
 
 ---
+
+## 2026-05-16 (Phase 2 architectural follow-up) — Seeded operational roles reconciliation (ADR 0011)
+
+Three commits on master since the previous handoff (this docs
+commit will be the fourth):
+
+- `50220c9` docs(adr): seeded operational roles for Document
+  Controller (ADR 0011)
+- `6a10425` feat(data): seed DocumentAuthor role + amend
+  QualityManager (ADR 0011)
+- `a01aa69` chore(scripts): audit smoke setup against ADR 0011
+  seeded roles
+
+Architectural follow-up commit chain landing between Phase 2 C6b
+and C7. Not a Phase 2 chunk in the C-numbered chain — a focused
+reconciliation of the seed-shape gap surfaced at C6b stop 9
+("Smoke-script grants paper over a seed-shape gap" lesson in
+SCRATCHPAD). The chain follows the same three-commit shape the
+plan specified: ADR-only docs commit, then implementation +
+SPEC amendment, then smoke-script audit. Each commit stopped for
+review per CLAUDE.md commit authorization.
+
+### Scope and shape
+
+ADR 0008 deliberately left `Document.AssignReviewers` unassigned
+from the seeded `QualityManager` role on the reasoning that
+organizations should choose between small-shop and
+strict-gatekeeper policies through admin UI. C6b smoke evidence
+showed every walk had to paper over the resulting gap with four
+direct `UserPermission`/`UserRole` grants written by the
+smoke-setup script — admin's `Document.HardDelete` direct grant,
+admin's four-permission review-flow grant, the admin →
+`QualityManager` `UserRole` link, and `multireviewer`'s direct
+`Document.AssignReviewers` grant. The deployment-model
+clarification at C6b stop 9 (admin is IT-side only;
+author-can-submit is the small-shop default) reframed those
+grants as paper-overs rather than legitimate ongoing
+maintenance.
+
+ADR 0011 reverses ADR 0008's "Make Author a seeded role"
+rejection. The Phase 2 migration chain now seeds two operational
+roles: `DocumentAuthor` (five author-side permissions —
+`Document.Create` / `EditDraft` / `HardDelete` /
+`SubmitForReview` / `AssignReviewers`) for the author-can-submit
+small-shop default, and an amended `QualityManager` (the full
+13-permission Phase 2 catalog including
+`Document.AssignReviewers`) for the cross-functional reviewer
+role and the strict-gatekeeper variant (reached by revoking
+authoring permissions from `DocumentAuthor`, not by pruning
+`QualityManager`).
+
+### Commit-by-commit
+
+**Commit 1 (`50220c9`).** ADR 0011 drafted with full Context →
+Decision → Alternatives Considered → Consequences → Implementation
+Notes → Required Tests → References structure matching prior
+ADRs. The Alternatives section names four paths (Path A
+amend-QM-only standalone, Path B seed-DocumentAuthor-only
+standalone, Path C bootstrap-time `--strict-gatekeeper` flag,
+status-quo) with explicit rejection reasoning. Same commit
+appends a block-quote cross-reference to ADR 0008's "Make Author
+a seeded role" Alternatives Considered entry documenting the
+reversal — the original rejection's "Author is org-specific
+terminology" concern is preserved (DocumentAuthor is a generic
+placeholder admin UI lets organizations rename or replace) but
+the minimalism framing is reversed by the C6b smoke evidence.
+
+**Commit 2 (`6a10425`).** Migration
+`AddDocumentAuthorRoleAndAmendQualityManagerSeed` (timestamp
+20260517031921) lands:
+
+- 1 `Role` row — `DocumentAuthor` at deterministic Id
+  `08100000-...-02` (slot 02 of the C1 prefix; slot 01 was
+  `QualityManager`).
+- 5 `RolePermission` rows linking `DocumentAuthor` to its five
+  permissions at a new `08210000-` prefix (suffixes echo each
+  permission's own suffix per the C1 visual-tracing convention).
+- 1 `RolePermission` row linking `QualityManager` to
+  `Document.AssignReviewers` at `08200000-...-04` — filling the
+  slot C1 deliberately left open for this link.
+- All rows share one `DateTime.UtcNow` instant for
+  `EffectiveFromUtc` / `CreatedUtc` / `ModifiedUtc`;
+  `EffectiveToUtc` null; `CreatedBy = "system:migration"`
+  matching every other seed migration's sentinel.
+
+`PermissionNames.QualityManagerDefaults` updated to include
+`DocumentAssignReviewers` (now 13 entries, equal to
+`Phase2Document`); new `PermissionNames.DocumentAuthorDefaults`
+list mirrors the seeded set.
+
+`DocumentControllerMigrationSeedTests` updates: the prior
+`QualityManagerRole_DoesNotHaveDocumentAssignReviewersAsync`
+negative assertion is inverted to a positive
+`QualityManagerRole_HasDocumentAssignReviewersAsync` — load-bearing
+for the reversal (a future migration removing the grant fires
+this test). Four new `DocumentAuthor*` assertions parallel the
+existing QM-side coverage (deterministic Id, permission-set
+match, open-ended grants, system:migration attribution). One new
+`AddDocumentAuthorRoleAndAmendQualityManagerSeed_ProducesExpectedRowDeltasAsync`
+test pins the row-delta invariant: post-migration state has
+exactly +1 Role row and +6 RolePermission rows owned by the new
+migration, with the affected roles' total RolePermission count
+matching (12 + 1 QM + 5 DocumentAuthor = 18).
+
+`BootstrapServiceTests` comment updated to reflect the new
+seed-row totals (QM now 13 rows instead of 12; DocumentAuthor
+adds 5 more); the actual assertion is admin-scoped and stays
+correct.
+
+SPEC §5.1 Authorization paragraph rewritten with the two-role
+text; revision bumped 3.4 → 3.5; Revision History row added per
+CLAUDE.md Spec Drift rules.
+
+Tests: 5/5 runs at 764/764 passing, 0 warnings, 0 errors.
+
+**Commit 3 (`a01aa69`).** `scripts/grant-document-permissions.ps1`
+substantially rewritten (−436 / +258 lines, net −178). The four
+script-grants-paper-over-seed-gap patterns are gone. Default mode
+mints a new `smokeauthor` user assigned to `DocumentAuthor` via
+`UserRole`; `-CreateMultiRoleUser` mode mints `multireviewer`
+(QualityManager + ReviewerSecondary) and `secondreviewer`
+(QualityManager only). `multireviewer`'s direct
+`AssignReviewers` grant is removed — `QualityManager` now
+provides it via the role link.
+
+Adds `Show-EffectivePermissions` pre-flight helper per the
+SCRATCHPAD follow-up plan: each minted user's effective
+permission set (union of role-derived + direct grants, filtered
+to effective rows) is printed before the smoke walker signs in,
+so the seed shape is visually confirmed before walk-time. Also
+factors out `New-User` / `New-UserRole` / `Invoke-Sqlite-Lines`
+helpers — the original script had grown to ~670 lines with
+significant repetition; the audited version is closer to 400.
+
+Smoke procedure (lives in the script's comments) updates to
+walk through with `smokeauthor` for every author-side gesture
+(Create / EditDraft / HardDelete / SubmitForReview /
+AssignReviewers) and the two reviewers for review-side gestures.
+Admin performs no operational gestures — the deployment-model
+intent is now the script's default.
+
+### Smoke verification — the clean test of the new seed
+
+Per the plan's verification step: a fresh-bootstrap install plus
+the slimmer script, walked through the full C6a + C6b gesture
+set, must complete without `permission denied` errors. **The
+walk completed cleanly** — no permission-denied surfaces, no
+role-prompter throws, every affordance rendered where expected.
+The seed shape is correct: ADR 0011's two-role default delivers
+the deployment-model intent out of the box, and the smoke
+script's role is now narrowed to genuine test-data
+(`smokeauthor` mint + the multi-role `multireviewer` /
+`secondreviewer` mint for the `SignAsRoleDialog` paths).
+
+### What this resolves and what stays open
+
+**Resolved:**
+
+- The four script-grants-paper-over-seed-gap pattern instances
+  catalogued at C6b stop 9 — gone, none remaining.
+- The deployment-model intent (admin is IT-side, author-can-submit
+  is the small-shop default) is now the seeded default.
+- The C6b smoke walk's friction at first run is gone; future
+  smoke walks against fresh installs don't need to paper over
+  anything.
+
+**Still open (intentional — out of scope per the plan):**
+
+- **C3 self-assignment guard** — `DocumentLifecycleService.
+  SubmitForReviewAsync` rejects the author appearing in their
+  own reviewer list. Plan §1 and §C of the C6b plan claim
+  "self-assignment allowed"; the C3 service guard wins for now.
+  Separate workflow-semantics question; deferred to its own ADR
+  or amendment per SCRATCHPAD "Author-as-self-reviewer policy".
+- **ADR 0009 role-resolution corner case** — when a user holds a
+  permission only via direct `UserPermission` grants (no
+  role-mediated path), the `SignatureRolePrompter` finds zero
+  eligible roles and throws. ADR 0011's seed shape makes the
+  case practically rare (every signable permission is now in at
+  least one seeded role) but the corner case itself is
+  architecturally distinct; deferred to its own future ADR per
+  SCRATCHPAD "ADR 0009 role-resolution vs direct UserPermission
+  grants".
+- **Admin UI for role / permission management** — earlier
+  pressure (per ADR 0011's Consequences) but no blocking
+  dependency. Organizations that want to rename `DocumentAuthor`
+  or adjust seeded role permissions can do so via direct DB
+  manipulation or a focused script in the interim. Admin UI was
+  already on the post-Phase-2 roadmap per ADR 0008 §"Out of
+  scope".
+
+### Lessons pinned
+
+**Seed shape vs. deployment-model intent — name the
+deployment-model intent explicitly before deciding which roles
+to seed.** ADR 0008's reasoning was internally consistent
+("organizations should choose the policy via admin UI") but
+predicated on an unstated assumption about who would be doing
+the operational gestures in the interim. The deployment-model
+clarification (admin is IT-side, not operational) inverted the
+assumption — and once that flipped, the seed shape ADR 0008
+described stopped matching reality. The lesson generalizes:
+when a phase's seeded data needs to support a documented
+default workflow but the workflow isn't yet wired end-to-end,
+write down what the deployment model expects of the seed before
+finalizing the seed. Mismatches caught at smoke-time become
+friction every smoke walk re-pays; mismatches caught at
+planning-time are one decision.
+
+**Migration-applies-cleanly row-delta tests catch the kind of
+seed bug that's hard to spot in review.** The new
+`AddDocumentAuthorRoleAndAmendQualityManagerSeed_ProducesExpectedRowDeltasAsync`
+test pins exactly six new RolePermission rows + one new Role
+row + total-count = 18 for the affected roles. A future
+amendment that accidentally double-writes a row (e.g., copies a
+`DocumentAuthor` link out of `QualityManager` instead of just
+adding it) would pass every other test in the file —
+deterministic-Id checks pass, list-equivalence checks pass —
+but fire this one. The pattern is worth replicating in future
+seed migrations that modify existing rows or add to existing
+role permission sets.
+
+**`dotnet ef migrations add` produces the scaffold; the Up()
+body is hand-written; the Designer.cs is auto-generated and
+correct.** For data-only migrations (no schema change) the
+Designer.cs is identical to the previous migration's model
+snapshot. The workflow that worked: scaffold via `dotnet ef
+migrations add <name>` from the `src/EasySynQ.Data` directory
+(no startup-project needed since Data is the EF target with
+both `EntityFrameworkCore.Sqlite` and `EntityFrameworkCore.Design`
+package references), then overwrite the `.cs` file's empty
+Up()/Down() with the actual `InsertData` calls. Build verifies
+the migration compiles; the migration-seed tests verify the
+seed shape; the row-delta test verifies no over- or
+under-writing.
+
+**Stable Guid suffixes echo permission Ids for visual tracing.**
+The migration uses `08210000-...-01` for the DocumentAuthor →
+Document.Create link, `08210000-...-09` for DocumentAuthor →
+Document.HardDelete, etc., matching each permission's own
+suffix. Raw-query debugging gets cheaper when the relationship
+is visible in the Id alone — a maintainer reading
+`SELECT * FROM RolePermissions` doesn't have to cross-reference
+PermissionId values against the Permissions table to know what
+the link grants. The C1 migration established the convention;
+this migration extends it.
+
+### Next intended chunk
+
+Phase 2 C7 (lock inspector + print views) is the next chunk per
+ADR 0008's commit chunking. Three items collected in SCRATCHPAD
+"C7 — visual polish surfaces" share the visual-surface
+character and warrant being thought about together when C7
+planning happens: PDF.js viewer toolbar theming, the lock
+inspector itself (every Phase 2 lockout pathway surfaces in the
+inspector per SPEC §4.3), and print-friendly Document +
+Revision detail renderings per SPEC §4.5. The C7 plan should
+also flush the "detail view loses affordances on document
+switch" follow-up surfaced at C6b stop 9 (deferred to a
+follow-up commit).
+
+The architectural reconciliation captured by this handoff is
+out of the C-numbered chunk chain, so Phase 2's chunk
+completion count is unchanged (six of nine implementation
+commits in, 67%). The next chunk number is still C7.
+
+Working tree clean as of this entry's commit.
+
+---

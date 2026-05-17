@@ -548,3 +548,58 @@ handoff write-up):
    from how code should behave.** When the symptom is visual, the
    ground truth is in the failure trail (Network / Console / log
    file / audit DB), not in the screen pixels.
+
+---
+
+# Future-phase planning guidance
+
+Watch-items that don't belong to a specific deferred chunk but
+should land in front of a phase-N planner's eyes before they
+finalize migration shape, seed-data layout, or other
+chain-wide structural decisions. Add entries here when an ADR's
+Consequences or a session-handoff lesson identifies a
+generalizable concern; remove when the concern stops applying
+or graduates to its own ADR.
+
+---
+
+## Seed-affecting migrations are fragmenting per chunk — consider bundling per phase
+
+- **Surfaced by:** ADR 0011 §Consequences > Negative (2026-05-16).
+  Cited verbatim in the ADR text; pinned here so a phase-N
+  planner finds it without having to grep Phase 2's old ADRs.
+- **Background:** Phase 2's migration chain now contains three
+  seed-affecting migrations after C1: C1 itself (catalog + the
+  initial `QualityManager` row), `AddVaultPhysicalDeletePermission`
+  (added the `Vault.PhysicalDelete` permission + an upgrade-path
+  link row), and `AddDocumentAuthorRoleAndAmendQualityManagerSeed`
+  (added the `DocumentAuthor` role + amended `QualityManager`).
+  Each landed in its own chunk as the work surfaced the need —
+  reasonable in isolation but the cumulative shape is a
+  fragmented list of small data-only migrations every fresh
+  install has to apply in order.
+- **What to do when picked up:** at phase-N planning time, look
+  at the phase's overall seed-amendment surface before
+  committing to one migration per chunk. If two chunks both
+  want to amend the same seed (a permission catalog, a default
+  role's permission set, etc.), consider whether their seed
+  amendments can land together at the start (or end) of the
+  phase rather than once per chunk. The benchmark is:
+  - One catalog-amendment migration per phase is the comfortable
+    default — every install applies it once, the rationale lives
+    in one place.
+  - Two is acceptable if a clear ordering dependency motivates
+    the split (e.g., one needs to run before another's chunk so
+    its referenced rows exist).
+  - Three or more should be a planning-time question, not a
+    discovery-time accident.
+- **Why this isn't a rule:** sometimes a chunk genuinely
+  discovers the need for a seed amendment mid-implementation
+  and the smallest possible follow-up migration is correct
+  (Phase 2's `AddVaultPhysicalDeletePermission` was that
+  pattern; ADR 0011's reconciliation was another). The
+  guidance is to surface the question at planning time so the
+  split is deliberate, not to forbid mid-phase additions.
+- **Citation:** ADR 0011 §Consequences > Negative, fourth
+  bullet ("The migration is the third seed-affecting Phase 2
+  migration after C1.").
