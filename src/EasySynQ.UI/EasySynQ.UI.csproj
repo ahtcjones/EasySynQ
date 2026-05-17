@@ -14,7 +14,7 @@
 
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
-    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.7" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.8" />
     <!--
       Microsoft.Web.WebView2 — first third-party UI dependency in the
       project (ADR 0010 C5). Pinned to a specific version, NOT a range,
