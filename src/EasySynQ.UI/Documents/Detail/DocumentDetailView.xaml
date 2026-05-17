@@ -151,7 +151,12 @@
             <Button Content="Hard-delete draft"
                     Command="{Binding HardDeleteDraftCommand}"
                     Visibility="{Binding CanHardDelete, Converter={StaticResource BoolToVisibility}}"
+                    Margin="0,0,8,0"
                     AutomationProperties.Name="Hard-delete this draft" />
+            <Button Content="Print"
+                    Command="{Binding PrintCommand}"
+                    Visibility="{Binding CanPrint, Converter={StaticResource BoolToVisibility}}"
+                    AutomationProperties.Name="Print document detail" />
         </StackPanel>
 
         <!-- Viewer error banner. -->

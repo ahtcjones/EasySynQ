@@ -398,7 +398,8 @@ public class DocumentListViewModelTests
                 Mock.Of<EasySynQ.UI.Documents.SubmitForReview.ISubmitForReviewPrompter>(),
                 Mock.Of<EasySynQ.UI.Documents.ReviewAndSign.IReviewAndSignPrompter>(),
                 Mock.Of<EasySynQ.UI.Documents.ReturnToDraft.IReturnToDraftPrompter>(),
-                lockInspectorPrompter.Object);
+                lockInspectorPrompter.Object,
+                Mock.Of<EasySynQ.UI.Printing.IDocumentPrintService>());
             return constructedDetail;
         }
 
@@ -513,7 +514,8 @@ public class DocumentListViewModelTests
                 Mock.Of<EasySynQ.UI.Documents.SubmitForReview.ISubmitForReviewPrompter>(),
                 Mock.Of<EasySynQ.UI.Documents.ReviewAndSign.IReviewAndSignPrompter>(),
                 Mock.Of<EasySynQ.UI.Documents.ReturnToDraft.IReturnToDraftPrompter>(),
-                lockInspectorPrompter2.Object);
+                lockInspectorPrompter2.Object,
+                Mock.Of<EasySynQ.UI.Printing.IDocumentPrintService>());
             constructed.Add(dvm);
             return dvm;
         }

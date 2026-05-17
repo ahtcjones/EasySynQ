@@ -27,6 +27,7 @@ using EasySynQ.UI.Identity;
 using EasySynQ.UI.LockInspector;
 using EasySynQ.UI.Login;
 using EasySynQ.UI.Navigation;
+using EasySynQ.UI.Printing;
 using EasySynQ.UI.Pulse;
 using EasySynQ.UI.Signing;
 
@@ -347,6 +348,10 @@ public partial class App : Application
         // reason repository + resolver registry as captive
         // dependencies, matching the project-wide prompter pattern.
         services.AddSingleton<ILockInspectorPrompter, LockInspectorPrompter>();
+        // C7d — Document detail print service (ADR 0008 C7 / SPEC §4.5).
+        // Singleton; assembles the snapshot DTO + builds the
+        // FlowDocument + surfaces the PrintDialog on each call.
+        services.AddSingleton<IDocumentPrintService, DocumentPrintService>();
 
         // List view model — transient so navigating to the documents
         // entry produces a fresh VM each time (the factory is

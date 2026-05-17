@@ -19,6 +19,7 @@ using EasySynQ.UI.Documents.ReviewAndSign;
 using EasySynQ.UI.Documents.SubmitForReview;
 using EasySynQ.UI.LockInspector;
 using EasySynQ.UI.Navigation;
+using EasySynQ.UI.Printing;
 
 namespace EasySynQ.UI.Documents.Detail;
 
@@ -65,6 +66,7 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
     private readonly IReviewAndSignPrompter _signPrompter;
     private readonly IReturnToDraftPrompter _returnPrompter;
     private readonly ILockInspectorPrompter _lockInspectorPrompter;
+    private readonly IDocumentPrintService _printService;
 
     /// <summary>
     /// Constructs the view model bound to a specific <see cref="Document"/>.
@@ -91,7 +93,8 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
         ISubmitForReviewPrompter submitPrompter,
         IReviewAndSignPrompter signPrompter,
         IReturnToDraftPrompter returnPrompter,
-        ILockInspectorPrompter lockInspectorPrompter)
+        ILockInspectorPrompter lockInspectorPrompter,
+        IDocumentPrintService printService)
     {
         ArgumentNullException.ThrowIfNull(document);
         ArgumentNullException.ThrowIfNull(documents);
@@ -110,6 +113,7 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
         ArgumentNullException.ThrowIfNull(signPrompter);
         ArgumentNullException.ThrowIfNull(returnPrompter);
         ArgumentNullException.ThrowIfNull(lockInspectorPrompter);
+        ArgumentNullException.ThrowIfNull(printService);
 
         Document = document;
         _documents = documents;
@@ -128,6 +132,7 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
         _signPrompter = signPrompter;
         _returnPrompter = returnPrompter;
         _lockInspectorPrompter = lockInspectorPrompter;
+        _printService = printService;
     }
 
     /// <summary>The Document this detail view is bound to.</summary>
@@ -152,6 +157,7 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
     [NotifyPropertyChangedFor(nameof(ShowAssignmentPanel))]
     [NotifyPropertyChangedFor(nameof(ShowCommentPanel))]
     [NotifyPropertyChangedFor(nameof(CanOpenLockInspector))]
+    [NotifyPropertyChangedFor(nameof(CanPrint))]
     [NotifyPropertyChangedFor(nameof(LastReturnToDraftReason))]
     [NotifyPropertyChangedFor(nameof(HasLastReturnToDraftReason))]
     [NotifyCanExecuteChangedFor(nameof(EditMetadataCommand))]
@@ -376,6 +382,15 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
     public bool CanOpenLockInspector =>
         Document.RetiredAtUtc is not null
         || (CurrentRevision is { } rev && rev.Lifecycle != DocumentLifecycle.Draft);
+
+    /// <summary>
+    /// <see langword="true"/> when a print job can be assembled —
+    /// the bound Document has a current revision (the print template
+    /// requires one). No permission gate per ADR 0008 §"Out of
+    /// scope" and the C7 planning decision: printing is always
+    /// available to anyone who can see the document.
+    /// </summary>
+    public bool CanPrint => CurrentRevision is not null;
 
     /// <summary>
     /// The most recent return-to-draft reason stamped on the
@@ -737,6 +752,19 @@ public sealed partial class DocumentDetailViewModel : ObservableObject, IDirtySt
 
         await _lockInspectorPrompter.OpenAsync(
             lockedType, lockedId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Prints the Document detail view's snapshot via the print
+    /// service (ADR 0008 C7 / SPEC §4.5). Always available when a
+    /// current revision exists — no permission gate, no role check.
+    /// Surfaces the system print dialog; the user picks a destination
+    /// (a real printer or "Microsoft Print to PDF") or cancels.
+    /// </summary>
+    [RelayCommand]
+    private async Task PrintAsync(CancellationToken cancellationToken)
+    {
+        await _printService.PrintAsync(Document.Id, cancellationToken);
     }
 
     /// <summary>
