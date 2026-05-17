@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Interop;
 
 namespace EasySynQ.UI.Documents.CreateDocument;
 
@@ -31,7 +32,16 @@ public sealed class CreateDocumentPrompter : ICreateDocumentPrompter
         cancellationToken.ThrowIfCancellationRequested();
 
         var dialog = new CreateDocumentDialog(_filePicker);
-        if (Application.Current?.MainWindow is { } owner && !ReferenceEquals(owner, dialog))
+        // Owner-assignment throws "Cannot set Owner property to a
+        // Window that has not been shown previously" when MainWindow
+        // is closed or never shown; that state is reachable after the
+        // LoginWindow's close (WPF auto-clears MainWindow on close
+        // but does not reassign it to the shell that was shown
+        // earlier). PresentationSource.FromVisual returning a real
+        // HwndSource is the reliable "this Hwnd is alive" check.
+        if (Application.Current?.MainWindow is { } owner
+            && !ReferenceEquals(owner, dialog)
+            && PresentationSource.FromVisual(owner) is HwndSource)
         {
             dialog.Owner = owner;
         }

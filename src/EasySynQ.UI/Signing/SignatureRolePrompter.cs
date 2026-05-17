@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Interop;
 
 using EasySynQ.Services.Authorization;
 
@@ -70,7 +71,12 @@ public sealed class SignatureRolePrompter : ISignatureRolePrompter
         // MainWindow already being active, so the ownerless fallback
         // is a defensive default).
         var dialog = new SignAsRoleDialog(eligible);
-        if (Application.Current?.MainWindow is { } owner && !ReferenceEquals(owner, dialog))
+        // PresentationSource guard — Application.MainWindow can be a
+        // closed or never-shown Window after the sign-in flow; Owner
+        // assignment on such a Window throws.
+        if (Application.Current?.MainWindow is { } owner
+            && !ReferenceEquals(owner, dialog)
+            && PresentationSource.FromVisual(owner) is HwndSource)
         {
             dialog.Owner = owner;
         }

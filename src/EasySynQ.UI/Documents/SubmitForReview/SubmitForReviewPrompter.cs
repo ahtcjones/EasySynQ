@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Interop;
 
 using EasySynQ.Services.Abstractions;
 using EasySynQ.Services.Documents;
@@ -56,7 +57,12 @@ public sealed class SubmitForReviewPrompter : ISubmitForReviewPrompter
         var dialog = new SubmitForReviewDialog(
             revisionId, _users, _rolePrompter, _lifecycle, _clock);
 
-        if (Application.Current?.MainWindow is { } owner && !ReferenceEquals(owner, dialog))
+        // PresentationSource guard — Application.MainWindow can be a
+        // closed or never-shown Window after the sign-in flow; Owner
+        // assignment on such a Window throws.
+        if (Application.Current?.MainWindow is { } owner
+            && !ReferenceEquals(owner, dialog)
+            && PresentationSource.FromVisual(owner) is HwndSource)
         {
             dialog.Owner = owner;
         }

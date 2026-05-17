@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Interop;
 
 using EasySynQ.Services.Abstractions;
 using EasySynQ.Services.LockReasons;
@@ -75,21 +76,27 @@ public sealed class LockInspectorPrompter : ILockInspectorPrompter
             DataContext = vm,
         };
 
-        // Position near the cursor. Mouse.GetPosition(null) on its own
-        // returns a point relative to the focused element; combine
-        // with PointToScreen against a top-level Window to get screen
-        // coordinates. Falls back to the centred-on-MainWindow
-        // position when no anchor is available.
-        if (Application.Current?.MainWindow is { } mainWindow)
+        // Position near the cursor and parent to a real Window if we
+        // can find one that's still alive. Application.Current.MainWindow
+        // can be a closed or never-shown Window after the sign-in flow
+        // (the LoginWindow's close auto-clears MainWindow, and the
+        // shell's Show does not re-assign it — so the property may
+        // point at a defunct reference). PresentationSource.FromVisual
+        // returning null is the reliable "this Window has no live
+        // Hwnd" check; both PointToScreen and Owner-assignment throw
+        // on such windows. Fall back to center-screen when no live
+        // owner is available.
+        var owner = FindOwnerWindow();
+        if (owner is not null)
         {
-            var mousePos = mainWindow.PointToScreen(Mouse.GetPosition(mainWindow));
+            var mousePos = owner.PointToScreen(Mouse.GetPosition(owner));
             // Offset slightly so the popover does not appear under the
             // cursor (the user's pointer is still hovering the click
             // target).
             window.Left = mousePos.X + 8;
             window.Top = mousePos.Y + 8;
             window.WindowStartupLocation = WindowStartupLocation.Manual;
-            window.Owner = mainWindow;
+            window.Owner = owner;
         }
         else
         {
@@ -97,5 +104,38 @@ public sealed class LockInspectorPrompter : ILockInspectorPrompter
         }
 
         window.Show();
+    }
+
+    /// <summary>
+    /// Returns the first WPF Window with a live presentation source
+    /// (i.e., shown and not yet closed), or <see langword="null"/> when
+    /// no such Window exists. Prefers <see cref="Application.MainWindow"/>
+    /// when usable; otherwise scans <see cref="Application.Windows"/>.
+    /// The PresentationSource check is the reliable
+    /// "this-Hwnd-is-alive" test — relying on
+    /// <see cref="Application.MainWindow"/> alone is brittle because
+    /// WPF auto-clears it on the original main window's close but does
+    /// not auto-reassign it when a new top-level Window is shown.
+    /// </summary>
+    private static Window? FindOwnerWindow()
+    {
+        var app = Application.Current;
+        if (app is null) return null;
+
+        if (app.MainWindow is { } main
+            && PresentationSource.FromVisual(main) is HwndSource)
+        {
+            return main;
+        }
+
+        foreach (Window w in app.Windows)
+        {
+            if (PresentationSource.FromVisual(w) is HwndSource)
+            {
+                return w;
+            }
+        }
+
+        return null;
     }
 }
