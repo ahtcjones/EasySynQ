@@ -2928,3 +2928,436 @@ commits in, 67%). The next chunk number is still C7.
 Working tree clean as of this entry's commit.
 
 ---
+
+## 2026-05-17 (Phase 2 C7) — Lock inspector + visual polish + print-friendly Document detail
+
+Seven commits on master since the previous handoff (this docs
+commit will be the eighth):
+
+- `29da466` fix(ui): detail-view affordance refresh on switch
+  (C6b follow-up — DataContextChanged fallback handler)
+- `0d80219` feat(services): lock-inspector chain resolution
+  (ADR 0012 / C7a)
+- `6f9b321` feat(ui): lock-inspector popover + wire-up (ADR 0012
+  / C7b — first cut, Window-based)
+- `dae51f8` fix(ui): guard prompter Owner-assignment against
+  unshown MainWindow
+- `45ea494` fix(ui): lock-inspector popover as WPF Popup
+  primitive (ADR 0012 — refactor from Window after smoke)
+- `3f0654d` feat(ui): dark-theme polish for PDF.js toolbar +
+  WPF DataGrid + ToolTip (C7c)
+- `4beaf46` feat(ui): print-friendly Document detail (ADR 0008
+  C7d / SPEC §4.5)
+
+Phase 2 C7 closing chunk per ADR 0008's commit chunking. The
+chunk shipped as four implementation commits (C7a–C7d) plus
+three smoke-surfaced follow-up fixes (the affordance refresh,
+the prompter Owner guard, and the lock-inspector popover-vs-
+window refactor). Total: 48 files changed, +4,657 / −49 lines.
+ADR 0012 (Lock Inspector Popover Pattern) ships fully amended
+in C7b's commit; the prompter and Popup-primitive amendments
+folded the design's lessons-learned into the same document
+rather than scattering them across additional ADRs.
+
+### Scope and shape
+
+C7 was the largest single chunk in Phase 2 by surface area (the
+C6a high-water from May 16 has now been overtaken). Four
+discrete surfaces:
+
+- **C7a — service layer.** `ILockReasonRepository`,
+  `LockReasonRepository`, `ILockReasonResolver` interface +
+  registry, `DocumentLockReasonResolver`,
+  `DocumentRevisionLockReasonResolver`. Chain templates for
+  L1 (Approved) / L2 (InReview) / L3 (Superseded) /
+  L4 (Archived) / L5 (Retired Document) / L6 (Soft-deleted).
+  Always-resolve + write-through-cache producer strategy
+  (rejects the eager-write pattern that would double audit-row
+  counts).
+- **C7b — UI layer.** `LockInspectorViewModel` (always-resolve
+  + first-inspect cache write), `LockInspectorPrompter`
+  (singleton in DI), `LockInspectorPopover` UserControl hosted
+  in a WPF `Popup` primitive (after the smoke-surfaced
+  refactor from chromeless Window). Trigger wired to
+  `DocumentDetailView`'s status pill via a clickable lock-
+  glyph Button and to `DocumentListView`'s row lock-glyph
+  cells via a new `DataGridTemplateColumn`. `DocumentListItem`
+  extended with nullable `LockedEntityType` / `LockedEntityId`
+  fields; `DocumentListViewModel.ProjectRow` computes them
+  with `Document.RetiredAtUtc` taking precedence over
+  revision-level lockouts (a retired Document inspects at the
+  Document level so users land on the retirement signature,
+  not an archived revision row).
+- **C7c — visual polish.** Two scopes bundled in one commit
+  per the SCRATCHPAD "C7 visual polish surfaces" entry. PDF.js
+  toolbar dark-theme retune (selectors covered:
+  `#toolbarContainer`, `#toolbarViewer`, `#secondaryToolbar`,
+  `#findbar`, `.toolbarButton`, `.secondaryToolbarButton`,
+  `.toolbarField`, `#pageNumber`, `#scaleSelect`, `#findInput`,
+  `.toolbarLabel`, `#findResultsCount`) with hardcoded hex
+  values cross-referenced to `Resources/Colors.xaml` tokens.
+  WPF DataGrid + ToolTip implicit dark-theme styles added to
+  `BaseStyles.xaml` (covers the DocumentListView's column
+  header row + every tooltip in the app, including the lock-
+  glyph "Why is this locked?" surface). README's bump
+  checklist extended with the new PDF.js selectors.
+- **C7d — print-friendly Document detail.** BCL-only
+  FlowDocument + PrintDialog pipeline. Snapshot DTO + pure
+  builder + thin orchestrator split: `DocumentPrintViewModel`
+  (record), `DocumentPrintBuilder` (static, US Letter at 96
+  DPI), `IDocumentPrintService` + `DocumentPrintService`
+  (orchestrates load → build → PrintDialog). Print affordance
+  on `DocumentDetailView`'s action row, no permission gate per
+  ADR 0007 catalog and the C7 planning decision. Sections:
+  Header (Title + Number), Metadata (revision label,
+  lifecycle, dates, author), Signatures (BrushGreenBg on
+  Signed rows, BrushAmberBg on Discarded), Comments (if any),
+  Audit (chronological table), Footer (record IDs + attached
+  PDF blob id). Metadata wrapper only — PDF content prints
+  via PDF.js's own toolbar print button.
+
+### Per-commit walkthrough
+
+**`29da466` — affordance refresh follow-up (planned-and-shipped-
+before-C7).** Per the planning synthesis's recommendation to
+land this before C7's list-view lock-glyph cells, the C6b stop 9
+"detail view loses affordances on document switch" bug
+shipped as a focused fix. `DocumentDetailView.xaml.cs` gains a
+`DataContextChanged` handler routed through a shared
+`TryDispatchLoadAsync` that gates on `IsLoaded` + DataContext +
+`_loadDispatchedFor` reference-equality. Fires `LoadCommand`
+exactly once per (view, VM) pair regardless of which event
+(`Loaded` or `DataContextChanged`) sees the satisfied
+preconditions first. Smoke-validated by the user before C7
+began.
+
+**`0d80219` — C7a service-layer scaffolding.** ADR 0012 drafted
+with the original design (popover as chromeless Window,
+attached-behavior trigger). `LockedEntityTypes` constants
+mirror the canonical type strings (`Document`,
+`DocumentRevision`). Two per-type resolver classes registered
+under one `ILockReasonResolver` interface; registry composes
+from `IEnumerable<ILockReasonResolver>` and throws on duplicate
+keys. 35 new unit + integration tests (765 → 799 total). L6
+takes precedence over L1-L5 (a soft-deleted superseded
+revision returns the L6 chain).
+
+**`6f9b321` — C7b UI first cut.** ADR 0012 amended twice in
+this commit: (a) staleness paragraph rewritten to the simpler
+always-resolve + cache-write-once design (the original
+"compare cached ModifiedUtc against live entity ModifiedUtc"
+approach would have forced the VM to dependency-inject every
+per-entity-type repository), (b) prompter pattern alignment
+replacing the attached-behavior framing (attached behaviors
+would require a static `App.Services` accessor the codebase
+deliberately doesn't expose). Window-based popover with
+`Deactivated` auto-close. List + detail wiring. 17 new tests
+(799 → 816 total). Smoke-validated for the prior tests; the
+popover smoke failed (see C7b follow-ups below).
+
+**`dae51f8` — prompter Owner guard fix.** First smoke-walk
+crash: "Cannot set Owner property to a Window that has not
+been shown previously" from CreateDocumentPrompter, plus
+"This Visual is not connected to a presentationSource" from
+the new LockInspectorPrompter. Both came from the codebase-
+wide prompter pattern `Application.Current?.MainWindow is
+{ } owner` trusting MainWindow without a liveness check.
+After `LoginWindow.Close()`, WPF auto-clears
+`Application.MainWindow` to null; subsequent Window
+constructions auto-set MainWindow to the new Window before it
+is Show()'d, putting `Application.MainWindow` in an unusable
+state. Patch added `PresentationSource.FromVisual(owner) is
+HwndSource` to the guard in all seven prompters — the
+canonical "this Hwnd is alive" check. Pre-existing latent bug
+that C7b's `PointToScreen` call (which fails on closed
+Windows where Owner-assignment alone only fails on never-shown
+ones) made impossible to ignore.
+
+**`45ea494` — LockInspectorPopover Window → Popup refactor.**
+Second smoke-walk failure: clicking the lock glyph produced no
+visible popover, but the Button's tooltip worked (so the
+command WAS reaching the prompter). Root cause: a chromeless
+Window (`WindowStyle=None` + `AllowsTransparency=True`)
+interacts badly with WPF activation when `Show()` runs on an
+async-continuation rather than the original click handler's
+synchronous call stack. The OS refuses to activate the
+chromeless Window because the synchronous user-input context
+has cleared by the time `Show()` runs (after
+`await vm.LoadAsync(...)`); `Deactivated` fires immediately
+and closes the popover before the user sees it. Refactor:
+`LockInspectorPopover` is now a `UserControl` hosted in a WPF
+`Popup` primitive (`PlacementMode.MousePoint`, `StaysOpen=False`).
+The Popup doesn't steal focus, click-outside dismissal works
+via mouse-capture rather than focus events, and positioning is
+independent of activation state. Third ADR 0012 amendment
+captures the activation-after-await failure mode for future
+maintainers.
+
+**`3f0654d` — visual polish bundle.** PDF.js toolbar dark-theme
+CSS (scope 2 of `easysynq-overrides.css`; the existing
+download/open-file hide is scope 1). Hex values hardcoded with
+`/* Colors.xaml ColorXxx */` cross-reference comments. README's
+bump checklist extended with a grouped "Scope 1 / Scope 2"
+selector inventory so a future PDF.js bump re-verifies both
+override scopes consistently. WPF implicit styles added to
+`BaseStyles.xaml`: `ToolTip` (retemplated around a 4px-corner
+Border with Surface2 bg + Text foreground + Border line),
+`DataGrid` (transparent base + Surface2 alternating rows +
+Border grid lines), `DataGridColumnHeader` (retemplated;
+Surface2 bg + TextDim semibold 11pt foreground + 1px bottom
+Border line), `DataGridRow` (:hover lifts to Surface3,
+:selected uses AccentDim — overrides Windows-blue
+`SystemColors.HighlightBrushKey`), `DataGridCell` (clears
+framework's per-cell selection chrome). The DataGrid +
+ToolTip portion was bundled with C7c at the user's request
+during smoke (the column-header row and tooltip styling were
+discovered to be in the same family of "default-theme bleeds
+through" concern). Tests unchanged.
+
+**`4beaf46` — C7d print-friendly Document detail.** BCL-only
+FlowDocument + PrintDialog pipeline. Snapshot DTO assembled at
+print-time; pure builder constructs the FlowDocument; thin
+orchestrator drives the load + dialog. US Letter at 96 DPI
+(816 × 1056, 48 px page padding + 8 px block indent on bare
+paragraphs so headings align with the table cells' 8 px inner
+padding — added at user smoke feedback). 6 new builder unit
+tests pin section sequence, page dimensions, font stack, audit
+ordering, and defensive missing-author-signature handling
+(816 → 822 total). `DocumentDetailViewModel` gains the
+`IDocumentPrintService` dependency, `CanPrint` computed
+property, and `PrintCommand`. `DocumentDetailView.xaml` adds
+the Print button at the end of the affordance row. No
+`Document.Print` permission gate (per the C7 planning
+decision and ADR 0007 catalog discipline).
+
+### ADR 0012 — three amendments in one commit chain
+
+ADR 0012 (Lock Inspector Popover Pattern) shipped as part of
+C7a (`0d80219`) and was amended three times before C7b stabilized:
+
+1. **Staleness paragraph simplified** (`6f9b321`). Replaced the
+   "compare cached ModifiedUtc against live entity ModifiedUtc"
+   complexity with the always-resolve + write-through-on-first-
+   inspect design. The cached `LockReason` row is audit
+   evidence ("a lock was inspected here at this time"), not a
+   render-time data source — every open renders fresh from the
+   resolver.
+2. **Prompter pattern alignment** (`6f9b321`). Replaced the
+   "attached behavior" trigger framing with the codebase's
+   established prompter pattern (`ISubmitForReviewPrompter` /
+   `IReviewAndSignPrompter`). Attached behaviors would require
+   a static `App.Services` accessor the codebase deliberately
+   doesn't expose; the prompter pattern keeps DI explicit.
+3. **Popup primitive vs chromeless Window** (`45ea494`). After
+   the smoke-surfaced activation-after-await failure, the ADR's
+   UI-shape paragraph + Implementation Notes were rewritten to
+   document the Popup primitive choice and the failure mode
+   that motivated the swap.
+
+Three amendments in one commit chain is unusual; the rationale
+in each is a concrete failure (or near-failure) observed during
+implementation rather than a re-litigation of design. The
+pattern works because the ADR is the load-bearing record —
+future maintainers reading ADR 0012 see the final design and
+the why, not just the design.
+
+### Smoke verification — the user's column, four iterations
+
+C7's smoke arc was the densest of Phase 2 to date. Four smoke
+loops:
+
+1. **Pre-C7 affordance fix.** Verified the
+   navigate-away-and-back workaround was no longer needed.
+   Clean.
+2. **C7b first-cut popover smoke.** Two crashes surfaced
+   (Owner-assignment and PointToScreen). Fix landed as
+   `dae51f8`. Re-smoke: Create worked, but the lock popover
+   still didn't appear — only the tooltip showed.
+3. **C7b Popup-primitive refactor smoke.** Lock popover
+   appears correctly with chain content; click-outside
+   dismisses cleanly. Approved.
+4. **C7c + C7d combined smoke.** PDF.js toolbar reads cleanly
+   against the dark theme; DataGrid column header row +
+   tooltips are legible; Print produces a clean 8.5×11 layout
+   in Microsoft Print to PDF. The bundle-DataGrid-and-ToolTip-
+   into-C7c decision was user-driven during smoke (they
+   flagged the regressions while testing the PDF.js fix). C7d
+   smoke also surfaced a small left-padding nit on bare
+   paragraphs (heading text touching the page edge) — folded
+   into the C7d commit before landing.
+
+The 4-iteration smoke arc is the Phase 2 high-water for round
+trips, but each iteration ended with a concrete commit and the
+final result is robust. The Window-vs-Popup refactor in
+particular is the kind of design choice that's hard to
+diagnose without smoke evidence — the C7b first-cut compiled,
+passed all 17 new tests, and worked correctly during the test-
+project's static analysis. The runtime behavior only surfaced
+on a real WPF dispatcher with a real Show() call following an
+await. Smoke catching it was the design working as intended.
+
+### What this resolves and what stays open
+
+**Resolved:**
+
+- Every Phase 2 lockout pathway (L1–L6 per ADR 0012) now
+  surfaces a clickable lock-glyph affordance with a popover
+  showing the causal chain (CLAUDE.md non-negotiable rule #5
+  + SPEC §4.3).
+- The C6b stop 9 affordance-refresh bug (the navigate-away-
+  and-back workaround) is gone.
+- The codebase-wide prompter Owner-assignment pattern is
+  robust against the `Application.MainWindow` null-or-unshown
+  state that follows the sign-in flow. Pre-existing latent
+  bug closed across all seven prompters.
+- PDF.js toolbar reads cleanly against the EasySynQ dark
+  theme. Column header row + every app tooltip retuned to the
+  palette. Default-theme bleed-through eliminated for every
+  control surface where it was observed.
+- Print-friendly Document detail surfaces a US-Letter
+  FlowDocument with signatures, comments, and audit trail
+  inlined per SPEC §4.5.
+
+**Still open (intentional — out of C7 scope):**
+
+- **Live navigation on lock-chain link click.** Chain links
+  with non-null `NavigationEntityType` / `NavigationEntityId`
+  render the navigation refs as static visual cues; clicking
+  doesn't dispatch into a detail view yet. Wired when an
+  `INavigationService` lands (planned post-Phase-2).
+- **Revision-history print template.** The print covers the
+  latest revision only. A per-revision-history print surface
+  is deferred to its own future commit when a
+  revision-history view exists in the UI.
+- **Print of inlined PDF content.** Metadata wrapper only —
+  the PDF binary prints via PDF.js's own toolbar print
+  button. If pilot auditors push back on the two-job
+  workflow, inlining the PDF pages into the FlowDocument is a
+  dependency-flag conversation (PdfiumViewer or
+  WebView2.PrintToPdfAsync) per CLAUDE.md rule 9.
+- **The "Microsoft Print to PDF" path is the only smoke-
+  validated destination.** Real-printer behavior is not
+  exercised yet — the pilot deployment's printer fleet is the
+  next reality check, likely during the pre-deployment
+  hardening pass.
+- **C3 self-assignment guard, ADR 0009 role-resolution corner
+  case, admin UI for role/permission management.** Carried
+  over from prior session-handoff entries; still applicable.
+
+### Lessons pinned
+
+**Chromeless Windows + async + Show = focus-stealing
+refused.** The C7b smoke arc's most expensive lesson. WPF's
+chromeless `Window` (`WindowStyle=None` + `AllowsTransparency=True`)
+can only steal focus from a synchronous user-input context.
+After an `await`, the OS refuses to activate it,
+`Deactivated` fires immediately on `Show()`, and the popover
+closes before it's visible. **The fix is to use the right WPF
+primitive for the shape:** WPF `Popup` is purpose-built for
+informational click-outside-dismissable popovers and sidesteps
+the activation model entirely. The Window approach should be
+reserved for blocking modal dialogs that already have focus
+because the user's click activated the parent window
+synchronously. Generalize: when WPF behavior surprises after
+an `await` boundary, the synchronous-context-lost framing is
+the first thing to check.
+
+**`Application.MainWindow` becomes unusable after the sign-in
+flow without explicit reassignment.** WPF auto-clears
+`Application.MainWindow` to null when the original main window
+(the LoginWindow) closes, and a subsequently-constructed
+Window (e.g., a fresh dialog) auto-becomes MainWindow at
+construction time — but might never be Show()'d. The
+`PresentationSource.FromVisual(window) is HwndSource` check
+is the canonical "this Hwnd is alive" test; the
+`is { } owner && !ReferenceEquals(owner, dialog)` pattern
+that prompters previously used was insufficient. This is a
+project-wide pattern fix that's now uniform across all seven
+prompters — apply the same guard to any future prompter that
+sets `Owner` from `Application.MainWindow`.
+
+**ADRs evolve in the same commit chain that implements them.**
+ADR 0012 was amended three times across two commits before
+stabilizing. Each amendment was a concrete failure observed
+during implementation, not a design re-litigation. The
+amend-in-place approach keeps the load-bearing record honest —
+future maintainers see the final design + the why, not just
+the original design + a trail of "see also" cross-references.
+The cost is some commit-message verbosity (each amendment
+gets called out in the commit body); the benefit is the ADR
+stays the single source of truth.
+
+**Smoke as the design verifier.** The C7b first-cut compiled,
+passed every test, and looked correct in code review. The
+Window-vs-Popup choice was a design decision smoke caught
+that no static check could have. Per the project's smoke-
+protocol-roles convention, the user drove the gestures and I
+prepared/inspected; this division of labor is now load-bearing
+for any feature whose correctness depends on WPF runtime
+behavior (activation, focus, dispatcher ordering, hit-test).
+The 4-iteration smoke arc this chunk was expensive in round-
+trip time but each iteration ended with a concrete fix.
+
+**FlowDocument paginator is lazy.** `IDocumentPaginatorSource.
+DocumentPaginator.PageCount` returns 0 until
+`ComputePageCount()` is called explicitly. Discovered while
+writing `DocumentPrintBuilderTests`. The test that wanted to
+assert "pagination produces at least one page" had to force
+the computation. Future print-template tests should follow
+the same pattern.
+
+**Default WPF theme leaks through in surprising places.**
+C7c's SCRATCHPAD-tagged scope was just the PDF.js toolbar;
+during smoke the user identified two more surfaces (DataGrid
+column headers + tooltips) that had the same default-light
+appearance against the dark host theme. Both were trivially
+fixed by adding implicit styles to `BaseStyles.xaml`. The
+generalizable lesson: when a UI surface depends on framework-
+default styling, audit every control type the surface uses
+against the project's palette discipline. Implicit styles
+have low blast radius (they auto-apply where no explicit
+style overrides) and high payoff.
+
+**Block-level indentation in FlowDocument is separate from
+`PagePadding`.** Bare `Paragraph` blocks render at the
+PagePadding edge with no inner indent; `Table` cells render at
+PagePadding + cell `Padding`. The visual misalignment is
+subtle but real on a printed page. The C7d small-padding fix
+added an explicit `BlockIndent = 8` constant on bare
+paragraphs so they visually align with the table cells'
+content. Future print-template work should adopt the same
+pattern.
+
+### Next intended chunk
+
+**Phase 2 C8 (External library + compatibility flagging)** is
+the next chunk per ADR 0008's commit chunking. Scope per the
+ADR:
+
+- ExternalDocument CRUD (issuing body, designation, current
+  revision label, effective date).
+- DocumentLink CRUD (link an internal `DocumentRevision` to
+  an `ExternalDocument`).
+- Compatibility-review-required flag mechanics when an
+  external revision is recorded (SPEC §5.1 "compatibility
+  flagging").
+
+Then **C9 (closing handoff)** wraps Phase 2 and gates the
+move to Phase 3.
+
+**Phase 2 milestone:** with C7 landed, Phase 2 is eight of nine
+implementation commits in (89%). C8 is the last
+implementation commit before C9's closing handoff; C7's
+lessons-learned arc means C8 inherits a fully-styled UI with
+robust prompter wiring, a working FlowDocument print pipeline,
+and a lock-inspector framework ready for the new
+`DocumentLink.CompatibilityReviewRequiredFlag` lockout state
+to slot in (the C7a resolver registry is the extension point —
+C8 either extends `DocumentRevisionLockReasonResolver` with a
+new chain template for that flag, or adds a new
+`DocumentLinkLockReasonResolver`, the planning conversation
+will pick one).
+
+Working tree clean as of this entry's commit.
+
+---
