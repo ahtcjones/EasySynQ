@@ -313,6 +313,8 @@ Auth checks exist but no role to assign. Pilot deployment must use direct per-us
 
 Mirror the QualityManager seeding for an "Author" role with submit-for-review permissions. Rejected because "Author" is org-specific terminology — different shops will name it differently, with different scope. Letting orgs construct their own author role through admin UI (or grant directly to individual users in the meantime) keeps Phase 2's seeded data minimal and avoids prescribing terminology the spec doesn't use.
 
+> **Reversed by ADR 0011 (2026-05-16).** The deployment-model clarification and the C6b smoke-walk evidence (four direct `UserPermission`/`UserRole` grants required for the documented workflows to run on a fresh install) showed that not seeding the author role was friction at every fresh deployment, not minimalism. ADR 0011 seeds a generic `DocumentAuthor` role (with `Document.Create` + `EditDraft` + `HardDelete` + `SubmitForReview` + `AssignReviewers`) and amends `QualityManager` to include `Document.AssignReviewers`, so the author-can-submit small-shop default runs out of the box. The "terminology is org-specific" concern is preserved — `DocumentAuthor` is a generic placeholder that admin UI lets organizations rename, reshape, or replace.
+
 ## Consequences
 
 ### Positive
