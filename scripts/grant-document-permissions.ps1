@@ -1,19 +1,43 @@
-# Smoke-setup helper for Phase 2 C6a and C6b.
+# Smoke-setup helper for Phase 2 Document Controller.
 #
-# Default mode grants the three C6a author permissions (Document.Create,
-# Document.EditDraft, Document.HardDelete) to a target user by
-# inserting UserPermission rows directly into the SQLite database.
-# Used to prepare a fresh bootstrap install so the smoke walkthrough
-# (sign in -> create document -> upload PDF -> edit metadata ->
-# replace PDF -> hard-delete) has the permissions it needs.
+# Per ADR 0011, the Phase 2 migration chain seeds two operational
+# roles — `DocumentAuthor` (Create / EditDraft / HardDelete /
+# SubmitForReview / AssignReviewers) for the small-shop author-can-
+# submit default, and `QualityManager` (every Phase 2 document
+# permission) for the review-side gestures. The smoke walk uses
+# real users assigned to those roles via `UserRole` rows — no
+# direct `UserPermission` grants needed. Admin is the IT-side seat
+# only; it administers users and roles but does not perform
+# operational gestures.
 #
-# Add -CreateMultiRoleUser (C6b stop 8) to also seed the multi-role
-# test user the C6b smoke walk needs to exercise the
-# SignAsRoleDialog path: a `multireviewer` user assigned to BOTH the
-# seeded QualityManager role AND a new `ReviewerSecondary` role,
-# both of which grant Document.Review. When the user signs as a
-# reviewer the role-prompter sees two eligible roles and shows the
-# picker.
+# What this script does:
+#   - Mints a `smokeauthor` user assigned to `DocumentAuthor`. The
+#     C6a author-side smoke walk (sign in -> create document ->
+#     upload PDF -> edit metadata -> replace PDF -> hard-delete)
+#     runs as this user.
+#   - With `-CreateMultiRoleUser`, additionally mints `multireviewer`
+#     (in `QualityManager` + a new `ReviewerSecondary` role granting
+#     `Document.Review`) and `secondreviewer` (in `QualityManager`
+#     only). The C6b smoke walk uses these as the two reviewers on
+#     `smokeauthor`'s submitted documents — multireviewer exercises
+#     the multi-role `SignAsRoleDialog` path; secondreviewer
+#     exercises the single-role auto-pick path. Either also handles
+#     `Document.ReturnForEdits` / `Document.Retire` gestures since
+#     `QualityManager` holds those permissions.
+#   - Prints each minted user's effective permission set as a
+#     pre-flight verification helper. The smoke walker visually
+#     confirms before starting that each user holds the expected
+#     permissions.
+#
+# What this script no longer does (post-ADR-0011):
+#   - No direct `UserPermission` grants to admin. Admin is IT-side
+#     only; ADR 0011's seeded roles cover every operational gesture.
+#   - No `UserRole` row linking admin to `QualityManager`. Admin is
+#     not a member of any operational role.
+#   - No direct `UserPermission` grant of `Document.AssignReviewers`
+#     to multireviewer. `QualityManager` now holds it via the
+#     `AddDocumentAuthorRoleAndAmendQualityManagerSeed` migration's
+#     amendment.
 #
 # Canonical use:
 #   pwsh -File scripts/grant-document-permissions.ps1
@@ -23,22 +47,27 @@
 #   -DbPath              Override the SQLite path. Defaults to the
 #                        production location:
 #                        %LOCALAPPDATA%\EasySynQ\db\EasySynQ_Master.db
-#   -Username            Override the target user for the C6a grants.
-#                        Defaults to the bootstrap Administrator user.
-#   -CreateMultiRoleUser Switch — also seed the C6b multi-role test
-#                        user (ReviewerSecondary role + multireviewer
-#                        user with two role memberships).
-#   -MultiRoleUsername   Username for the C6b test user. Default:
-#                        'multireviewer'.
-#   -MultiRolePassword   Plaintext password for the C6b test user.
-#                        Default: 'multireviewer123' (meets the
-#                        12-character minimum from PasswordPolicy).
+#   -AuthorUsername      Username for the DocumentAuthor smoke user.
+#                        Default: 'smokeauthor'.
+#   -AuthorPassword      Plaintext password for the DocumentAuthor
+#                        smoke user. Default: 'smokeauthor1234'
+#                        (meets the 12-character minimum from
+#                        PasswordPolicy).
+#   -CreateMultiRoleUser Switch — also seed the C6b multi-role
+#                        review users (multireviewer + secondreviewer
+#                        + ReviewerSecondary role).
+#   -MultiRoleUsername   Username for the C6b multi-role reviewer.
+#                        Default: 'multireviewer'.
+#   -MultiRolePassword   Plaintext password for the C6b multi-role
+#                        reviewer. Default: 'multireviewer123'.
 #   -SecondaryRoleName   Name for the secondary role granting only
 #                        Document.Review. Default: 'ReviewerSecondary'.
+#   -SecondReviewerUsername  Username for the C6b single-role
+#                            reviewer. Default: 'secondreviewer'.
+#   -SecondReviewerPassword  Plaintext password for the C6b single-
+#                            role reviewer. Default: 'secondreviewer1'.
 #
-# Idempotent: re-running on a user/role that already exists is a
-# no-op for that row. Both the C6a grant block and the C6b
-# multi-role-user block check for existing rows before inserting.
+# Idempotent: re-running on a populated DB skips every existing row.
 #
 # Prerequisites:
 #   sqlite3.exe on PATH. Download from https://www.sqlite.org/download.html
@@ -47,15 +76,16 @@
 #
 # IMPORTANT: This script bypasses the standard-fields interceptor and
 # the audit-log interceptor (it writes via raw sqlite3 INSERT). That is
-# intentional for smoke setup — these are dev-only permission grants
+# intentional for smoke setup — these are dev-only user / role grants
 # that don't need to appear in the production audit trail. Production
-# permission grants go through the admin UI (when it ships) which
-# routes through the normal repository pipeline.
+# user / role provisioning goes through the admin UI (when it ships)
+# which routes through the normal repository pipeline.
 
 [CmdletBinding()]
 param(
     [string]$DbPath = (Join-Path $env:LOCALAPPDATA 'EasySynQ\db\EasySynQ_Master.db'),
-    [string]$Username = $null,
+    [string]$AuthorUsername = 'smokeauthor',
+    [string]$AuthorPassword = 'smokeauthor1234',
     [switch]$CreateMultiRoleUser,
     [string]$MultiRoleUsername = 'multireviewer',
     [string]$MultiRolePassword = 'multireviewer123',
@@ -102,6 +132,20 @@ function Invoke-Sqlite-Scalar([string]$sql) {
     return ($result -split "`n")[0].Trim().Split('|')[0]
 }
 
+# Helper: run a SELECT and return all rows as an array of strings
+# (one string per row, pipe-separated columns inline). Used by the
+# effective-permission verification helper to enumerate permission
+# names.
+function Invoke-Sqlite-Lines([string]$sql) {
+    $result = & sqlite3 -batch -separator '|' $DbPath $sql
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "sqlite3 query failed: $sql"
+        exit 1
+    }
+    if ([string]::IsNullOrWhiteSpace($result)) { return @() }
+    return $result -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+}
+
 # Helper: run a non-query (INSERT/UPDATE).
 function Invoke-Sqlite-NonQuery([string]$sql) {
     & sqlite3 -batch $DbPath $sql
@@ -110,38 +154,6 @@ function Invoke-Sqlite-NonQuery([string]$sql) {
         exit 1
     }
 }
-
-# --- Resolve target user -------------------------------------------
-
-if ([string]::IsNullOrWhiteSpace($Username)) {
-    # Default to the bootstrap administrator: the unique member of
-    # the seeded "Administrator" role.
-    Write-Host "Resolving target user via Administrator role membership..."
-    $userIdSql = @"
-SELECT u.Id
-FROM Users u
-JOIN UserRoles ur ON ur.UserId = u.Id
-JOIN Roles r ON r.Id = ur.RoleId
-WHERE r.Name = 'Administrator' AND u.IsDeleted = 0
-LIMIT 1;
-"@
-    $UserId = Invoke-Sqlite-Scalar $userIdSql
-    if (-not $UserId) {
-        Write-Error "No Administrator user found. Has bootstrap completed?"
-        exit 1
-    }
-    $usernameLookup = Invoke-Sqlite-Scalar "SELECT Username FROM Users WHERE Id = '$UserId';"
-    Write-Host "Target user: $usernameLookup ($UserId)"
-} else {
-    $UserId = Invoke-Sqlite-Scalar "SELECT Id FROM Users WHERE Username = '$Username' AND IsDeleted = 0;"
-    if (-not $UserId) {
-        Write-Error "User '$Username' not found."
-        exit 1
-    }
-    Write-Host "Target user: $Username ($UserId)"
-}
-
-# --- Grant the three C6a permissions -------------------------------
 
 # Match EF Core's SQLite DateTime serialization format exactly:
 # space separator, no timezone marker, 7 fractional digits. SQLite
@@ -156,115 +168,151 @@ LIMIT 1;
 $nowUtc = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss.fffffff')
 $actor  = 'smoke-setup'
 
-# C6a + C6b smoke-author permission set. Smoke-setup scripts grow
-# per-phase to cover each phase's permission-gated affordances:
-# C6a added the three Draft-stage permissions (Create/EditDraft/
-# HardDelete); C6b extends with the four review-flow permissions
-# the smoke walk needs admin to hold as the author persona.
+# Helper: generate a fresh Guid in Microsoft.Data.Sqlite's
+# UPPERCASE TEXT canonical form. Per the provider's documented
+# convention (https://learn.microsoft.com/en-us/dotnet/standard/data/sqlite/types),
+# GUID values are stored as TEXT using Guid.ToString().ToUpper().
+# Microsoft.Data.Sqlite UPPERCASES Guid parameter bindings at
+# runtime, and SQLite's `=` operator is case-sensitive on TEXT.
+# Script-inserted rows must match the case convention or runtime
+# EF queries (e.g., GetUsersWithPermissionAsync's IN-clause join
+# back to Users) silently return zero matches even though the
+# rows exist with the correct value. C6b stop 9 smoke walk
+# surfaced this when reviewer-picker queries returned only admin
+# (bootstrap-written, uppercase) and never the script-written
+# multireviewer/secondreviewer rows.
 #
-# Document.AssignReviewers note: per ADR 0008 §"Authorization",
-# this permission is intentionally NOT assigned to the seeded
-# QualityManager role (organizations grant it either to authors
-# in the small-shop default or restrict it to QM in the
-# strict-gatekeeper policy). The Administrator role doesn't grant
-# it either (PermissionNames.All is system-only by design). So
-# admin can ONLY acquire Document.AssignReviewers via a direct
-# UserPermission row written by this script — there is no other
-# path on a fresh-bootstrap install.
-$permissionsToGrant = @(
-    'Document.Create',
-    'Document.EditDraft',
-    'Document.HardDelete',
-    'Document.SubmitForReview',
-    'Document.AssignReviewers',
-    'Document.ReturnForEdits',
-    'Document.Review'
-)
+# PowerShell's `[guid]::NewGuid().ToString()` returns lowercase
+# ("D" format) by default — the .ToUpper() is essential.
+function New-RowId { return [guid]::NewGuid().ToString().ToUpper() }
 
-$grantedCount = 0
-$skippedCount = 0
+# Helper: generate a random 8-byte RowVersion blob. The schema
+# column is BLOB(8); sqlite3 accepts X'...' hex literals. Returning
+# the hex-without-prefix lets callers compose the literal inline.
+function New-RowVersionHex {
+    $bytes = [byte[]]::new(8)
+    [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+    return ($bytes | ForEach-Object { $_.ToString('x2') }) -join ''
+}
 
-foreach ($permName in $permissionsToGrant) {
-    $permId = Invoke-Sqlite-Scalar "SELECT Id FROM Permissions WHERE Name = '$permName';"
-    if (-not $permId) {
-        Write-Error "Permission '$permName' not found. Has the Phase 2 migration been applied?"
+# Helper: mint a new User row with a PBKDF2-HMAC-SHA256 hash matching
+# the production PasswordHasher (16-byte salt, 32-byte hash output,
+# base64-encoded for storage, 600,000 iterations matching
+# PasswordPolicy.DefaultIterationCount). Returns the new user's Id.
+function New-User([string]$username, [string]$displayName, [string]$password) {
+    if ($password.Length -lt 12) {
+        Write-Error "Password for '$username' must be at least 12 characters (PasswordPolicy.DefaultMinimumLength)."
         exit 1
     }
+    $saltBytes = [byte[]]::new(16)
+    [System.Security.Cryptography.RandomNumberGenerator]::Fill($saltBytes)
+    $hashBytes = [System.Security.Cryptography.Rfc2898DeriveBytes]::Pbkdf2(
+        $password,
+        $saltBytes,
+        600000,
+        [System.Security.Cryptography.HashAlgorithmName]::SHA256,
+        32)
+    $hashB64 = [Convert]::ToBase64String($hashBytes)
+    $saltB64 = [Convert]::ToBase64String($saltBytes)
 
-    # Idempotency check: skip if an effective grant already exists
-    # for (user, permission). 'Effective' here means EffectiveToUtc
-    # is NULL (open-ended) AND IsDeleted = 0 — matches the production
-    # resolver's filter. The EffectivePeriod owned type is flattened
-    # into the UserPermissions table as plain EffectiveFromUtc /
-    # EffectiveToUtc columns (no owned-type prefix) per the
-    # AddPermissionsAndLinkTables migration.
+    $userId = New-RowId
+    $userRv = New-RowVersionHex
+    Invoke-Sqlite-NonQuery @"
+INSERT INTO Users (
+    Id, Username, DisplayName,
+    PasswordHash, PasswordSalt, PasswordIterationCount,
+    MustChangePassword, FailedLoginCount, LockedUntilUtc,
+    LastLoginUtc, IsDisabled,
+    CreatedBy, CreatedUtc, ModifiedBy, ModifiedUtc, RowVersion, IsDeleted
+) VALUES (
+    '$userId', '$username', '$displayName',
+    '$hashB64', '$saltB64', 600000,
+    0, 0, NULL,
+    NULL, 0,
+    '$actor', '$nowUtc', '$actor', '$nowUtc', X'$userRv', 0
+);
+"@
+    return $userId
+}
+
+# Helper: write a UserRole row linking $userId to $roleId if no
+# open-ended row already exists for that pair. Idempotent.
+function New-UserRole([string]$userId, [string]$roleId, [string]$userLabel, [string]$roleLabel) {
     $existing = Invoke-Sqlite-Scalar @"
-SELECT Id FROM UserPermissions
-WHERE UserId = '$UserId'
-  AND PermissionId = '$permId'
+SELECT Id FROM UserRoles
+WHERE UserId = '$userId'
+  AND RoleId = '$roleId'
   AND EffectiveToUtc IS NULL
   AND IsDeleted = 0
 LIMIT 1;
 "@
-
     if ($existing) {
-        Write-Host "  [skip]   $permName (already granted)"
-        $skippedCount++
-        continue
+        Write-Host "  [skip]   '$userLabel' -> $roleLabel UserRole already exists"
+        return
     }
-
-    # Generate a fresh Guid for the new row in Microsoft.Data.Sqlite's
-    # UPPERCASE TEXT canonical form (see script-bottom helper
-    # New-RowId comment for the underlying rationale).
-    $newId = [guid]::NewGuid().ToString().ToUpper()
-
-    # RowVersion is BLOB(8) in the schema; sqlite3 accepts X'...' hex
-    # literals for blobs. Use a random 8-byte value so the row's
-    # optimistic-concurrency token differs from any other row.
-    $rowVersionBytes = [byte[]]::new(8)
-    [System.Security.Cryptography.RandomNumberGenerator]::Fill($rowVersionBytes)
-    $rowVersionHex = ($rowVersionBytes | ForEach-Object { $_.ToString('x2') }) -join ''
-
+    $urId = New-RowId
+    $urRv = New-RowVersionHex
     Invoke-Sqlite-NonQuery @"
-INSERT INTO UserPermissions (
-    Id, UserId, PermissionId,
+INSERT INTO UserRoles (
+    Id, UserId, RoleId,
     EffectiveFromUtc, EffectiveToUtc,
     CreatedBy, CreatedUtc, ModifiedBy, ModifiedUtc, RowVersion, IsDeleted
 ) VALUES (
-    '$newId', '$UserId', '$permId',
+    '$urId', '$userId', '$roleId',
     '$nowUtc', NULL,
-    '$actor', '$nowUtc', '$actor', '$nowUtc', X'$rowVersionHex', 0
+    '$actor', '$nowUtc', '$actor', '$nowUtc', X'$urRv', 0
 );
 "@
-    Write-Host "  [grant]  $permName"
-    $grantedCount++
+    Write-Host "  [link]   '$userLabel' -> $roleLabel"
 }
 
-Write-Host ""
-Write-Host "Done. Granted: $grantedCount. Already in place: $skippedCount."
+# Helper: print the effective permission set for a user, computed
+# as the union of role-derived permissions (UserRole -> Role ->
+# RolePermission -> Permission, filtered to currently-effective
+# rows) and direct UserPermission grants (also currently-effective).
+# Matches the resolver's filter shape on EffectiveToUtc IS NULL +
+# IsDeleted = 0. Pre-flight verification — the smoke walker
+# visually confirms each user holds the expected permissions
+# before starting the walk.
+function Show-EffectivePermissions([string]$userId, [string]$label) {
+    Write-Host ""
+    Write-Host "  Effective permissions for '$label':"
+    $names = Invoke-Sqlite-Lines @"
+SELECT DISTINCT p.Name FROM Permissions p
+JOIN RolePermissions rp ON rp.PermissionId = p.Id
+JOIN UserRoles ur ON ur.RoleId = rp.RoleId
+WHERE ur.UserId = '$userId'
+  AND ur.EffectiveToUtc IS NULL AND ur.IsDeleted = 0
+  AND rp.EffectiveToUtc IS NULL AND rp.IsDeleted = 0
+  AND p.IsDeleted = 0
+UNION
+SELECT DISTINCT p.Name FROM Permissions p
+JOIN UserPermissions up ON up.PermissionId = p.Id
+WHERE up.UserId = '$userId'
+  AND up.EffectiveToUtc IS NULL AND up.IsDeleted = 0
+  AND p.IsDeleted = 0
+ORDER BY 1;
+"@
+    if (-not $names -or $names.Count -eq 0) {
+        Write-Host "    (no effective permissions — the smoke walk will fail authorization checks)"
+        return
+    }
+    foreach ($name in $names) {
+        Write-Host "    - $name"
+    }
+}
 
-# --- C6b: grant the smoke author the QualityManager role ----------
-#
-# ADR 0009 corner case (surfaced by C6b stop 9 smoke walk): the
-# role-prompter (SignatureRolePrompter) filters eligible roles by
-# permission via IRoleResolutionService.GetEligibleRolesForPermission,
-# which iterates the user's CURRENT-USER-ACCESSOR-supplied
-# RolePermissions snapshot. Direct UserPermission grants don't
-# appear in any role bucket and the prompter throws
-# InvalidOperationException for "no role grants this permission"
-# even when the user effectively holds it. This is the defensive
-# throw documented in ADR 0009.
-#
-# Short-term mitigation: give the smoke author membership in the
-# seeded QualityManager role, which grants most Document.* perms
-# (everything except Document.AssignReviewers). The direct
-# UserPermission grants above remain harmless redundancy (the
-# effective-permission set is a union). Document.AssignReviewers
-# stays as a direct grant — no seeded role holds it per ADR 0008.
-#
-# Long-term: an ADR 0009 amendment, deferred — see SCRATCHPAD
-# "Microsoft.Data.Sqlite Guid-case convention" and the broader
-# "Author-as-self-reviewer policy" entries for related work.
+# --- Resolve seeded role Ids ---------------------------------------
+
+$documentAuthorRoleId = Invoke-Sqlite-Scalar @"
+SELECT Id FROM Roles
+WHERE Name = 'DocumentAuthor' AND IsDeleted = 0
+LIMIT 1;
+"@
+if (-not $documentAuthorRoleId) {
+    Write-Error "DocumentAuthor role not found. Has the AddDocumentAuthorRoleAndAmendQualityManagerSeed migration applied?"
+    exit 1
+}
 
 $qualityManagerRoleId = Invoke-Sqlite-Scalar @"
 SELECT Id FROM Roles
@@ -276,185 +324,55 @@ if (-not $qualityManagerRoleId) {
     exit 1
 }
 
-$existingAuthorUR = Invoke-Sqlite-Scalar @"
-SELECT Id FROM UserRoles
-WHERE UserId = '$UserId'
-  AND RoleId = '$qualityManagerRoleId'
-  AND EffectiveToUtc IS NULL
-  AND IsDeleted = 0
+# --- Mint the DocumentAuthor smoke user ----------------------------
+
+Write-Host ""
+Write-Host "=== DocumentAuthor smoke user ==="
+
+$existingAuthorId = Invoke-Sqlite-Scalar @"
+SELECT Id FROM Users
+WHERE Username = '$AuthorUsername' AND IsDeleted = 0
 LIMIT 1;
 "@
 
-if ($existingAuthorUR) {
-    Write-Host "  [skip]   smoke author -> QualityManager UserRole already exists"
+if ($existingAuthorId) {
+    Write-Host "  [skip]   user '$AuthorUsername' already exists ($existingAuthorId)"
+    $authorUserId = $existingAuthorId
 } else {
-    $authorUrId = [guid]::NewGuid().ToString().ToUpper()
-    $authorUrRvBytes = [byte[]]::new(8)
-    [System.Security.Cryptography.RandomNumberGenerator]::Fill($authorUrRvBytes)
-    $authorUrRvHex = ($authorUrRvBytes | ForEach-Object { $_.ToString('x2') }) -join ''
-    Invoke-Sqlite-NonQuery @"
-INSERT INTO UserRoles (
-    Id, UserId, RoleId,
-    EffectiveFromUtc, EffectiveToUtc,
-    CreatedBy, CreatedUtc, ModifiedBy, ModifiedUtc, RowVersion, IsDeleted
-) VALUES (
-    '$authorUrId', '$UserId', '$qualityManagerRoleId',
-    '$nowUtc', NULL,
-    '$actor', '$nowUtc', '$actor', '$nowUtc', X'$authorUrRvHex', 0
-);
-"@
-    Write-Host "  [link]   smoke author -> QualityManager (role-path access to Document.* perms; routes through role-prompter cleanly)"
+    $authorUserId = New-User -username $AuthorUsername -displayName 'Smoke Author' -password $AuthorPassword
+    Write-Host "  [user]   created '$AuthorUsername' ($authorUserId) — password '$AuthorPassword'"
 }
 
-# --- C6b: multi-role test user (optional) --------------------------
+# DocumentAuthor membership — gives the smoke user every author-side
+# permission needed by the C6a walk (Create / EditDraft / HardDelete
+# / SubmitForReview / AssignReviewers) via the seeded role.
+New-UserRole -userId $authorUserId -roleId $documentAuthorRoleId `
+    -userLabel $AuthorUsername -roleLabel 'DocumentAuthor'
+
+Show-EffectivePermissions -userId $authorUserId -label $AuthorUsername
+
+# --- C6b: multi-role test users (optional) -------------------------
 
 if ($CreateMultiRoleUser) {
     Write-Host ""
-    Write-Host "=== C6b: multi-role test user ==="
-
-    # Helper: generate a fresh Guid in Microsoft.Data.Sqlite's
-    # UPPERCASE TEXT canonical form. Per the provider's documented
-    # convention (https://learn.microsoft.com/en-us/dotnet/standard/data/sqlite/types),
-    # GUID values are stored as TEXT using Guid.ToString().ToUpper().
-    # Microsoft.Data.Sqlite UPPERCASES Guid parameter bindings at
-    # runtime, and SQLite's `=` operator is case-sensitive on TEXT.
-    # Script-inserted rows must match the case convention or runtime
-    # EF queries (e.g., GetUsersWithPermissionAsync's IN-clause join
-    # back to Users) silently return zero matches even though the
-    # rows exist with the correct value. C6b stop 9 smoke walk
-    # surfaced this when reviewer-picker queries returned only
-    # admin (bootstrap-written, uppercase) and never the
-    # script-written multireviewer/secondreviewer rows.
-    #
-    # PowerShell's `[guid]::NewGuid().ToString()` returns lowercase
-    # ("D" format) by default — the .ToUpper() is essential.
-    function New-RowId { return [guid]::NewGuid().ToString().ToUpper() }
-
-    # Helper: generate a random 8-byte RowVersion blob. The schema
-    # column is BLOB(8); sqlite3 accepts X'...' hex literals. Returning
-    # the hex-without-prefix lets callers compose the literal inline.
-    function New-RowVersionHex {
-        $bytes = [byte[]]::new(8)
-        [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-        return ($bytes | ForEach-Object { $_.ToString('x2') }) -join ''
-    }
+    Write-Host "=== C6b: review users ==="
 
     # ---- Multireviewer user ---------------------------------------
-    # Check for an existing user first. The script is fully idempotent
-    # — re-running on a populated DB skips every existing row.
-    $existingUserId = Invoke-Sqlite-Scalar @"
+    $existingMultiId = Invoke-Sqlite-Scalar @"
 SELECT Id FROM Users
 WHERE Username = '$MultiRoleUsername' AND IsDeleted = 0
 LIMIT 1;
 "@
 
-    if ($existingUserId) {
-        Write-Host "  [skip]   user '$MultiRoleUsername' already exists ($existingUserId)"
-        $multiUserId = $existingUserId
+    if ($existingMultiId) {
+        Write-Host "  [skip]   user '$MultiRoleUsername' already exists ($existingMultiId)"
+        $multiUserId = $existingMultiId
     } else {
-        # PBKDF2 hash matching the production PasswordHasher:
-        # PBKDF2-HMAC-SHA256, 16-byte salt, 32-byte hash output,
-        # base64-encoded for storage. Iteration count matches
-        # PasswordPolicy.DefaultIterationCount (600_000) so the
-        # auth service's verify path produces a Success result
-        # (not SuccessRequiresRehash).
-        if ($MultiRolePassword.Length -lt 12) {
-            Write-Error "MultiRolePassword must be at least 12 characters (PasswordPolicy.DefaultMinimumLength)."
-            exit 1
-        }
-        $saltBytes = [byte[]]::new(16)
-        [System.Security.Cryptography.RandomNumberGenerator]::Fill($saltBytes)
-        $hashBytes = [System.Security.Cryptography.Rfc2898DeriveBytes]::Pbkdf2(
-            $MultiRolePassword,
-            $saltBytes,
-            600000,
-            [System.Security.Cryptography.HashAlgorithmName]::SHA256,
-            32)
-        $hashB64 = [Convert]::ToBase64String($hashBytes)
-        $saltB64 = [Convert]::ToBase64String($saltBytes)
-
-        $multiUserId = New-RowId
-        $userRv = New-RowVersionHex
-        Invoke-Sqlite-NonQuery @"
-INSERT INTO Users (
-    Id, Username, DisplayName,
-    PasswordHash, PasswordSalt, PasswordIterationCount,
-    MustChangePassword, FailedLoginCount, LockedUntilUtc,
-    LastLoginUtc, IsDisabled,
-    CreatedBy, CreatedUtc, ModifiedBy, ModifiedUtc, RowVersion, IsDeleted
-) VALUES (
-    '$multiUserId', '$MultiRoleUsername', 'Multi-role Reviewer (smoke)',
-    '$hashB64', '$saltB64', 600000,
-    0, 0, NULL,
-    NULL, 0,
-    '$actor', '$nowUtc', '$actor', '$nowUtc', X'$userRv', 0
-);
-"@
+        $multiUserId = New-User -username $MultiRoleUsername -displayName 'Multi-role Reviewer (smoke)' -password $MultiRolePassword
         Write-Host "  [user]   created '$MultiRoleUsername' ($multiUserId) — password '$MultiRolePassword'"
     }
 
-    # ---- multireviewer direct grant: Document.AssignReviewers ----
-    #
-    # Smoke pragmatism: the deployment model intent (per user
-    # clarification at C6b stop 9, 2026-05-16) is that
-    # author-can-submit is the small-shop default, but
-    # `Document.AssignReviewers` is intentionally omitted from the
-    # seeded QualityManager role per ADR 0008 and granted by
-    # organizations either to authors (small-shop) or restricted
-    # to QM (strict-gatekeeper). Neither default lands at seed
-    # time, so on a fresh-bootstrap install no user holds
-    # `AssignReviewers` until a script grants it.
-    #
-    # The C6b smoke walk needs multireviewer (operational author
-    # persona) to submit Doc B for review. Without this direct
-    # grant, the Submit-for-review affordance is correctly
-    # hidden by `CanSubmitForReview`'s AND-gate. Granting it
-    # here is the same "papering over a seed gap" pattern as the
-    # admin-side grants in the default-mode block — see
-    # SCRATCHPAD "Smoke-setup scripts grow per-phase" for the
-    # full pattern + the architectural follow-up that should
-    # reconcile the seed shape.
-    $assignReviewersPermId = Invoke-Sqlite-Scalar @"
-SELECT Id FROM Permissions
-WHERE Name = 'Document.AssignReviewers' AND IsDeleted = 0
-LIMIT 1;
-"@
-    if (-not $assignReviewersPermId) {
-        Write-Error "Document.AssignReviewers permission not found. Has the AddDocumentControllerTables migration applied?"
-        exit 1
-    }
-
-    $existingAssignReviewersGrant = Invoke-Sqlite-Scalar @"
-SELECT Id FROM UserPermissions
-WHERE UserId = '$multiUserId'
-  AND PermissionId = '$assignReviewersPermId'
-  AND EffectiveToUtc IS NULL
-  AND IsDeleted = 0
-LIMIT 1;
-"@
-
-    if ($existingAssignReviewersGrant) {
-        Write-Host "  [skip]   '$MultiRoleUsername' Document.AssignReviewers grant already exists"
-    } else {
-        $arGrantId = New-RowId
-        $arRvBytes = [byte[]]::new(8)
-        [System.Security.Cryptography.RandomNumberGenerator]::Fill($arRvBytes)
-        $arRvHex = ($arRvBytes | ForEach-Object { $_.ToString('x2') }) -join ''
-        Invoke-Sqlite-NonQuery @"
-INSERT INTO UserPermissions (
-    Id, UserId, PermissionId,
-    EffectiveFromUtc, EffectiveToUtc,
-    CreatedBy, CreatedUtc, ModifiedBy, ModifiedUtc, RowVersion, IsDeleted
-) VALUES (
-    '$arGrantId', '$multiUserId', '$assignReviewersPermId',
-    '$nowUtc', NULL,
-    '$actor', '$nowUtc', '$actor', '$nowUtc', X'$arRvHex', 0
-);
-"@
-        Write-Host "  [grant]  '$MultiRoleUsername' -> Document.AssignReviewers (direct UserPermission; smoke-only; see SCRATCHPAD)"
-    }
-
-    # ---- Secondary role -------------------------------------------
+    # ---- Secondary role (single-permission role granting Document.Review)
     $secondaryRoleId = Invoke-Sqlite-Scalar @"
 SELECT Id FROM Roles
 WHERE Name = '$SecondaryRoleName' AND IsDeleted = 0
@@ -479,24 +397,13 @@ INSERT INTO Roles (
         Write-Host "  [role]   created '$SecondaryRoleName' ($secondaryRoleId)"
     }
 
-    # ---- Resolve QualityManager role id ---------------------------
-    $qualityManagerRoleId = Invoke-Sqlite-Scalar @"
-SELECT Id FROM Roles
-WHERE Name = 'QualityManager' AND IsDeleted = 0
-LIMIT 1;
-"@
-    if (-not $qualityManagerRoleId) {
-        Write-Error "QualityManager role not found. Has the AddDocumentControllerTables migration applied?"
-        exit 1
-    }
-
     # ---- Secondary role -> Document.Review RolePermission ---------
     # Owned-type column flattening: EffectivePeriod owned type is
     # written as flat EffectiveFromUtc / EffectiveToUtc columns
     # (no owned-type prefix) per the AddPermissionsAndLinkTables
     # migration. The same DateTime serialization discipline as
-    # the UserPermission grant block above applies — space
-    # separator, 7 fractional digits, no T/Z markers.
+    # everywhere else in this script applies — space separator, 7
+    # fractional digits, no T/Z markers.
     $documentReviewPermId = Invoke-Sqlite-Scalar @"
 SELECT Id FROM Permissions
 WHERE Name = 'Document.Review' AND IsDeleted = 0
@@ -535,56 +442,25 @@ INSERT INTO RolePermissions (
         Write-Host "  [link]   '$SecondaryRoleName' -> Document.Review"
     }
 
-    # ---- User -> roles (UserRole rows) ----------------------------
-    # The multireviewer needs BOTH role memberships so the
-    # role-prompter sees two eligible roles for Document.Review
-    # (QualityManager grants it; ReviewerSecondary grants it
-    # too). The two grants are inserted independently so re-runs
-    # restore either side if one was manually deleted.
-    foreach ($roleAssignment in @(
-        @{ Name = 'QualityManager'; Id = $qualityManagerRoleId },
-        @{ Name = $SecondaryRoleName; Id = $secondaryRoleId }
-    )) {
-        $existingUR = Invoke-Sqlite-Scalar @"
-SELECT Id FROM UserRoles
-WHERE UserId = '$multiUserId'
-  AND RoleId = '$($roleAssignment.Id)'
-  AND EffectiveToUtc IS NULL
-  AND IsDeleted = 0
-LIMIT 1;
-"@
+    # multireviewer needs BOTH QualityManager and ReviewerSecondary
+    # so the role-prompter sees two eligible roles for
+    # Document.Review (QualityManager grants it; ReviewerSecondary
+    # grants it too). No direct UserPermission grants needed —
+    # QualityManager now holds AssignReviewers (per ADR 0011's
+    # amendment), so multireviewer can also exercise submit-side
+    # gestures from their QM membership if a test scenario requires
+    # it.
+    New-UserRole -userId $multiUserId -roleId $qualityManagerRoleId `
+        -userLabel $MultiRoleUsername -roleLabel 'QualityManager'
+    New-UserRole -userId $multiUserId -roleId $secondaryRoleId `
+        -userLabel $MultiRoleUsername -roleLabel $SecondaryRoleName
 
-        if ($existingUR) {
-            Write-Host "  [skip]   '$MultiRoleUsername' -> $($roleAssignment.Name) UserRole already exists"
-        } else {
-            $urId = New-RowId
-            $urRv = New-RowVersionHex
-            Invoke-Sqlite-NonQuery @"
-INSERT INTO UserRoles (
-    Id, UserId, RoleId,
-    EffectiveFromUtc, EffectiveToUtc,
-    CreatedBy, CreatedUtc, ModifiedBy, ModifiedUtc, RowVersion, IsDeleted
-) VALUES (
-    '$urId', '$multiUserId', '$($roleAssignment.Id)',
-    '$nowUtc', NULL,
-    '$actor', '$nowUtc', '$actor', '$nowUtc', X'$urRv', 0
-);
-"@
-            Write-Host "  [link]   '$MultiRoleUsername' -> $($roleAssignment.Name)"
-        }
-    }
+    Show-EffectivePermissions -userId $multiUserId -label $MultiRoleUsername
 
-    Write-Host ""
-    Write-Host "C6b multi-role user ready. Sign in as '$MultiRoleUsername' with password '$MultiRolePassword' to exercise the SignAsRoleDialog path."
-
-    # ---- secondreviewer single-role user (smoke walk Doc A) -------
-    # Per the C6b stop-9 self-assignment reconciliation (SCRATCHPAD
-    # "Author-as-self-reviewer policy"), the C3 service guard
-    # forbids the author appearing in their own reviewer list. The
-    # smoke walk needs Doc A to have TWO reviewers so the
-    # not-last-signer path is exercised. secondreviewer is the
-    # second reviewer alongside multireviewer; QualityManager-only
-    # so they're single-role for Document.Review (auto-pick path).
+    # ---- secondreviewer single-role user --------------------------
+    # QualityManager-only so SignAsRoleDialog auto-picks (single
+    # eligible role for Document.Review). Pairs with multireviewer
+    # for the two-reviewer not-last-signer walk.
     $existingSecondId = Invoke-Sqlite-Scalar @"
 SELECT Id FROM Users
 WHERE Username = '$SecondReviewerUsername' AND IsDeleted = 0
@@ -595,74 +471,20 @@ LIMIT 1;
         Write-Host "  [skip]   user '$SecondReviewerUsername' already exists ($existingSecondId)"
         $secondUserId = $existingSecondId
     } else {
-        if ($SecondReviewerPassword.Length -lt 12) {
-            Write-Error "SecondReviewerPassword must be at least 12 characters (PasswordPolicy.DefaultMinimumLength)."
-            exit 1
-        }
-        $saltBytes2 = [byte[]]::new(16)
-        [System.Security.Cryptography.RandomNumberGenerator]::Fill($saltBytes2)
-        $hashBytes2 = [System.Security.Cryptography.Rfc2898DeriveBytes]::Pbkdf2(
-            $SecondReviewerPassword,
-            $saltBytes2,
-            600000,
-            [System.Security.Cryptography.HashAlgorithmName]::SHA256,
-            32)
-        $hashB642 = [Convert]::ToBase64String($hashBytes2)
-        $saltB642 = [Convert]::ToBase64String($saltBytes2)
-
-        $secondUserId = New-RowId
-        $user2Rv = New-RowVersionHex
-        Invoke-Sqlite-NonQuery @"
-INSERT INTO Users (
-    Id, Username, DisplayName,
-    PasswordHash, PasswordSalt, PasswordIterationCount,
-    MustChangePassword, FailedLoginCount, LockedUntilUtc,
-    LastLoginUtc, IsDisabled,
-    CreatedBy, CreatedUtc, ModifiedBy, ModifiedUtc, RowVersion, IsDeleted
-) VALUES (
-    '$secondUserId', '$SecondReviewerUsername', 'Second Reviewer (smoke)',
-    '$hashB642', '$saltB642', 600000,
-    0, 0, NULL,
-    NULL, 0,
-    '$actor', '$nowUtc', '$actor', '$nowUtc', X'$user2Rv', 0
-);
-"@
+        $secondUserId = New-User -username $SecondReviewerUsername -displayName 'Second Reviewer (smoke)' -password $SecondReviewerPassword
         Write-Host "  [user]   created '$SecondReviewerUsername' ($secondUserId) — password '$SecondReviewerPassword'"
     }
 
-    # secondreviewer -> QualityManager only (single role for
-    # Document.Review, so the SignAsRoleDialog auto-picks).
-    $existingSecondUR = Invoke-Sqlite-Scalar @"
-SELECT Id FROM UserRoles
-WHERE UserId = '$secondUserId'
-  AND RoleId = '$qualityManagerRoleId'
-  AND EffectiveToUtc IS NULL
-  AND IsDeleted = 0
-LIMIT 1;
-"@
+    New-UserRole -userId $secondUserId -roleId $qualityManagerRoleId `
+        -userLabel $SecondReviewerUsername -roleLabel 'QualityManager'
 
-    if ($existingSecondUR) {
-        Write-Host "  [skip]   '$SecondReviewerUsername' -> QualityManager UserRole already exists"
-    } else {
-        $urId2 = New-RowId
-        $ur2Rv = New-RowVersionHex
-        Invoke-Sqlite-NonQuery @"
-INSERT INTO UserRoles (
-    Id, UserId, RoleId,
-    EffectiveFromUtc, EffectiveToUtc,
-    CreatedBy, CreatedUtc, ModifiedBy, ModifiedUtc, RowVersion, IsDeleted
-) VALUES (
-    '$urId2', '$secondUserId', '$qualityManagerRoleId',
-    '$nowUtc', NULL,
-    '$actor', '$nowUtc', '$actor', '$nowUtc', X'$ur2Rv', 0
-);
-"@
-        Write-Host "  [link]   '$SecondReviewerUsername' -> QualityManager"
-    }
-
-    Write-Host ""
-    Write-Host "C6b second-reviewer user ready. Sign in as '$SecondReviewerUsername' with password '$SecondReviewerPassword' for the not-last-signer step."
+    Show-EffectivePermissions -userId $secondUserId -label $SecondReviewerUsername
 }
 
 Write-Host ""
-Write-Host "Re-launch EasySynQ and sign in to see the Documents nav row with create/edit/delete affordances."
+Write-Host "Smoke users ready. Re-launch EasySynQ and sign in as:"
+Write-Host "  - '$AuthorUsername' / '$AuthorPassword' (DocumentAuthor) for author-side gestures (Create / EditDraft / HardDelete / SubmitForReview / AssignReviewers)."
+if ($CreateMultiRoleUser) {
+    Write-Host "  - '$MultiRoleUsername' / '$MultiRolePassword' (QualityManager + $SecondaryRoleName) for review gestures including the multi-role SignAsRoleDialog path."
+    Write-Host "  - '$SecondReviewerUsername' / '$SecondReviewerPassword' (QualityManager) for the single-role auto-pick review path and ReturnForEdits / Retire gestures."
+}
