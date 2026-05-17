@@ -1,30 +1,24 @@
-<Window x:Class="EasySynQ.UI.LockInspector.LockInspectorPopover"
-        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:lock="clr-namespace:EasySynQ.UI.LockInspector"
-        mc:Ignorable="d"
-        Title="EasySynQ — Why is this locked?"
-        Width="380"
-        SizeToContent="Height"
-        ResizeMode="NoResize"
-        WindowStyle="None"
-        AllowsTransparency="True"
-        Background="Transparent"
-        ShowInTaskbar="False"
-        Topmost="True"
-        Deactivated="OnDeactivated"
-        d:DataContext="{d:DesignInstance Type=lock:LockInspectorViewModel, IsDesignTimeCreatable=False}">
+<UserControl x:Class="EasySynQ.UI.LockInspector.LockInspectorPopover"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:lock="clr-namespace:EasySynQ.UI.LockInspector"
+             mc:Ignorable="d"
+             Width="380"
+             d:DataContext="{d:DesignInstance Type=lock:LockInspectorViewModel, IsDesignTimeCreatable=False}">
 
     <!--
-        ADR 0012 C7b — Lock Inspector popover.
+        ADR 0012 C7b — Lock Inspector popover content.
 
-        Chromeless transparent Window styled as a popover card. The
-        Border below is the actual visual surface (BrushSurface2
-        background, BrushBorder 1px, 6px corner radius — matches the
-        C6a viewer-error banner treatment). Auto-closes on
-        Deactivated (the user clicks outside the popover).
+        Hosted inside a WPF Popup primitive (configured in
+        LockInspectorPrompter) rather than a top-level Window so
+        click-outside dismissal works without focus-stealing games.
+        The Border below is the visual surface — BrushSurface2
+        background, BrushBorder 1px, 6px corner radius — matching
+        the C6a viewer-error banner treatment. The Popup itself
+        positions this control near the cursor and auto-closes on
+        outside click (StaysOpen=False).
     -->
     <Border Background="{StaticResource BrushSurface2}"
             BorderBrush="{StaticResource BrushBorder}"
@@ -96,4 +90,4 @@
 
         </StackPanel>
     </Border>
-</Window>
+</UserControl>

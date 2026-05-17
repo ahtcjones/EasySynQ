@@ -1,6 +1,4 @@
-using System.Windows;
-using System.Windows.Input;
-using System.Windows.Interop;
+using System.Windows.Controls.Primitives;
 
 using EasySynQ.Services.Abstractions;
 using EasySynQ.Services.LockReasons;
@@ -8,32 +6,49 @@ using EasySynQ.Services.LockReasons;
 namespace EasySynQ.UI.LockInspector;
 
 /// <summary>
-/// Production <see cref="ILockInspectorPrompter"/>. Constructs a
-/// fresh <see cref="LockInspectorViewModel"/> per call, presents the
-/// <see cref="LockInspectorPopover"/> window non-modally near the
-/// current mouse position, and lets the window's
-/// <see cref="Window.Deactivated"/> handler close it on click-outside
-/// (ADR 0012 C7b).
+/// Production <see cref="ILockInspectorPrompter"/>. Constructs a fresh
+/// <see cref="LockInspectorViewModel"/> per call, hosts the
+/// <see cref="LockInspectorPopover"/> inside a WPF
+/// <see cref="Popup"/> primitive, and shows the popup near the cursor
+/// (ADR 0012 C7b). The Popup auto-closes on click-outside via
+/// <c>StaysOpen=False</c>; the prompter holds a reference to the
+/// active popup so it stays alive while shown and so a subsequent
+/// open closes the prior popover before showing the new one.
 /// </summary>
 /// <remarks>
 /// <para>
-/// <b>Lifecycle.</b> Singleton in DI. Each call constructs a fresh
-/// Window — WPF Windows are single-show. Position is computed from
-/// the cursor's screen coordinates at the moment <see cref="OpenAsync"/>
-/// runs; the popover appears near where the user clicked.
+/// <b>Why a Popup primitive, not a Window.</b> An earlier draft of
+/// this prompter (and the original ADR 0012 framing) used a
+/// chromeless top-level Window with auto-close on
+/// <c>Deactivated</c>. That shape interacts poorly with the WPF
+/// activation model when called after an <c>await</c>: the
+/// synchronous user-input context that allows focus-stealing has
+/// already cleared by the time <c>Show()</c> runs, the OS refuses to
+/// activate the chromeless Window, and <c>Deactivated</c> fires
+/// immediately on Show — the popover closes before the user sees it.
+/// The Popup primitive sidesteps this entirely: it does not steal
+/// focus, click-outside dismissal is handled by <c>StaysOpen=False</c>'s
+/// internal mouse-capture hook, and positioning via
+/// <see cref="PlacementMode.MousePoint"/> works regardless of
+/// activation state.
 /// </para>
 /// <para>
-/// <b>Non-modal.</b> The prompter calls <see cref="Window.Show"/>
-/// (not <see cref="Window.ShowDialog"/>) so the user can continue
-/// interacting with the parent surface while the popover is open;
-/// the popover auto-closes when focus leaves it (matching the
-/// "informational glance" UX promise of ADR 0012).
+/// <b>Single-popover-at-a-time.</b> The prompter holds a reference to
+/// the active <see cref="Popup"/> in <c>_currentPopup</c>. A second
+/// open call closes the prior popup before constructing the new one.
+/// The Popup's <see cref="Popup.Closed"/> event clears the reference
+/// so a popup auto-dismissed by user click is also reclaimed.
 /// </para>
 /// </remarks>
 public sealed class LockInspectorPrompter : ILockInspectorPrompter
 {
     private readonly ILockReasonRepository _lockReasons;
     private readonly ILockReasonResolverRegistry _registry;
+
+    // Keeps the active popup alive while it is shown and lets a
+    // subsequent OpenAsync close the prior popover before showing a
+    // new one. Cleared in the popup's Closed handler.
+    private Popup? _currentPopup;
 
     /// <summary>Constructs the prompter over its scoped service
     /// dependencies.</summary>
@@ -57,85 +72,52 @@ public sealed class LockInspectorPrompter : ILockInspectorPrompter
         ArgumentException.ThrowIfNullOrWhiteSpace(lockedEntityType);
         ArgumentException.ThrowIfNullOrWhiteSpace(lockedEntityId);
 
+        // Close any active popup so we never have two open at once.
+        if (_currentPopup is not null)
+        {
+            _currentPopup.IsOpen = false;
+        }
+
         var vm = new LockInspectorViewModel(
             lockedEntityType,
             lockedEntityId,
             _lockReasons,
             _registry);
 
-        // Load the chain BEFORE showing the window so the popover
-        // appears already populated; an empty-then-filling popover
-        // would flicker the chain in after presentation. The VM's
-        // IsLoading flag stays available for the unlikely-but-possible
-        // case where someone keeps a reference to the VM and triggers
-        // a future re-load.
-        await vm.LoadAsync(cancellationToken);
-
-        var window = new LockInspectorPopover
+        var content = new LockInspectorPopover
         {
             DataContext = vm,
         };
 
-        // Position near the cursor and parent to a real Window if we
-        // can find one that's still alive. Application.Current.MainWindow
-        // can be a closed or never-shown Window after the sign-in flow
-        // (the LoginWindow's close auto-clears MainWindow, and the
-        // shell's Show does not re-assign it — so the property may
-        // point at a defunct reference). PresentationSource.FromVisual
-        // returning null is the reliable "this Window has no live
-        // Hwnd" check; both PointToScreen and Owner-assignment throw
-        // on such windows. Fall back to center-screen when no live
-        // owner is available.
-        var owner = FindOwnerWindow();
-        if (owner is not null)
+        var popup = new Popup
         {
-            var mousePos = owner.PointToScreen(Mouse.GetPosition(owner));
-            // Offset slightly so the popover does not appear under the
-            // cursor (the user's pointer is still hovering the click
-            // target).
-            window.Left = mousePos.X + 8;
-            window.Top = mousePos.Y + 8;
-            window.WindowStartupLocation = WindowStartupLocation.Manual;
-            window.Owner = owner;
-        }
-        else
+            Child = content,
+            Placement = PlacementMode.MousePoint,
+            StaysOpen = false,
+            AllowsTransparency = true,
+            PopupAnimation = PopupAnimation.Fade,
+        };
+
+        // Self-clearing reference so a user-dismissed popup is
+        // reclaimed (the prompter does not have to know whether the
+        // popup is closed by IsOpen=false above or by the user
+        // clicking outside).
+        popup.Closed += (_, _) =>
         {
-            window.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        }
-
-        window.Show();
-    }
-
-    /// <summary>
-    /// Returns the first WPF Window with a live presentation source
-    /// (i.e., shown and not yet closed), or <see langword="null"/> when
-    /// no such Window exists. Prefers <see cref="Application.MainWindow"/>
-    /// when usable; otherwise scans <see cref="Application.Windows"/>.
-    /// The PresentationSource check is the reliable
-    /// "this-Hwnd-is-alive" test — relying on
-    /// <see cref="Application.MainWindow"/> alone is brittle because
-    /// WPF auto-clears it on the original main window's close but does
-    /// not auto-reassign it when a new top-level Window is shown.
-    /// </summary>
-    private static Window? FindOwnerWindow()
-    {
-        var app = Application.Current;
-        if (app is null) return null;
-
-        if (app.MainWindow is { } main
-            && PresentationSource.FromVisual(main) is HwndSource)
-        {
-            return main;
-        }
-
-        foreach (Window w in app.Windows)
-        {
-            if (PresentationSource.FromVisual(w) is HwndSource)
+            if (ReferenceEquals(_currentPopup, popup))
             {
-                return w;
+                _currentPopup = null;
             }
-        }
+        };
 
-        return null;
+        _currentPopup = popup;
+
+        // Open BEFORE awaiting the load so the popup appears
+        // immediately with the "Loading…" affordance. The chain
+        // populates when LoadAsync completes; the popup's open
+        // state is independent of the load timing.
+        popup.IsOpen = true;
+
+        await vm.LoadAsync(cancellationToken);
     }
 }
