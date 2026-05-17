@@ -1,3 +1,4 @@
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -17,19 +18,67 @@ namespace EasySynQ.UI.Documents.Detail;
 /// </summary>
 public partial class DocumentDetailView : UserControl
 {
+    // Tracks which VM instance we've already dispatched LoadCommand
+    // for during the current attach cycle. WPF's ContentControl +
+    // DataTemplate ordering is non-deterministic across rebinds: on
+    // some second-and-later selections the view's Loaded event fires
+    // BEFORE the DataContext binding evaluates, and OnLoadedAsync sees
+    // a null DataContext and no-ops — leaving the new VM unloaded and
+    // the affordance row blank until the user navigates away and back
+    // (C6b stop 9 follow-up). DataContextChanged is the fallback
+    // signal: whichever event fires last with both signals satisfied
+    // dispatches the load. The guard ensures exactly one dispatch per
+    // (view, VM) pair regardless of fire order.
+    private DocumentDetailViewModel? _loadDispatchedFor;
+
     /// <summary>Parameterless constructor for XAML instantiation.</summary>
     public DocumentDetailView()
     {
         InitializeComponent();
+        DataContextChanged += OnDataContextChangedAsync;
     }
 
     private async void OnLoadedAsync(object sender, RoutedEventArgs e)
     {
-        if (DataContext is DocumentDetailViewModel vm
-            && vm.LoadCommand.CanExecute(null))
+        await TryDispatchLoadAsync();
+    }
+
+    private async void OnDataContextChangedAsync(
+        object sender,
+        DependencyPropertyChangedEventArgs e)
+    {
+        // The new DataContext is on its own attach cycle — clear any
+        // stale dispatch record so the new VM gets a load. (The cached
+        // reference would not match anyway since each list-row change
+        // mints a fresh DocumentDetailViewModel via the factory, but
+        // explicit-clear is cheaper than relying on inequality.)
+        if (!ReferenceEquals(e.NewValue, _loadDispatchedFor))
         {
-            await vm.LoadCommand.ExecuteAsync(null);
+            _loadDispatchedFor = null;
         }
+        await TryDispatchLoadAsync();
+    }
+
+    private async Task TryDispatchLoadAsync()
+    {
+        // Both signals must be satisfied before LoadCommand fires:
+        //   - The view is in the visual tree (IsLoaded), so async
+        //     property updates from LoadAsync have a UI to bind to.
+        //   - The DataContext is a DocumentDetailViewModel.
+        //   - We have not already dispatched for this VM instance.
+        //   - LoadCommand reports CanExecute.
+        // The early-return order is cheapest-first; the
+        // ReferenceEquals guard is the load-once invariant.
+        if (!IsLoaded
+            || DataContext is not DocumentDetailViewModel vm
+            || ReferenceEquals(vm, _loadDispatchedFor)
+            || !vm.LoadCommand.CanExecute(null))
+        {
+            return;
+        }
+
+        _loadDispatchedFor = vm;
+        await vm.LoadCommand.ExecuteAsync(null);
     }
 
     private void OnViewerNavigationFailed(
