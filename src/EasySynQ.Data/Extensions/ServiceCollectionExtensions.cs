@@ -7,6 +7,7 @@ using EasySynQ.Services.Bootstrap;
 using EasySynQ.Services.Documents;
 using EasySynQ.Services.Events;
 using EasySynQ.Services.Identity;
+using EasySynQ.Services.LockReasons;
 using EasySynQ.Services.Signatures;
 using EasySynQ.Services.Vault;
 
@@ -84,6 +85,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDocumentRevisionRepository, DocumentRevisionRepository>();
         services.AddScoped<IDocumentReviewAssignmentRepository, DocumentReviewAssignmentRepository>();
         services.AddScoped<IDocumentReviewCommentRepository, DocumentReviewCommentRepository>();
+        services.AddScoped<ILockReasonRepository, LockReasonRepository>();
 
         // Unit of work for explicit cross-save transactions.
         services.AddScoped<IUnitOfWork, UnitOfWork>();
@@ -125,6 +127,16 @@ public static class ServiceCollectionExtensions
         // infrastructure (production accessor is singleton, scoped
         // here is upper-bounded by accessor lifetime).
         services.AddScoped<IRoleResolutionService, RoleResolutionService>();
+
+        // Lock-reason resolution (ADR 0012 C7a). Each resolver is
+        // scoped because it composes with scoped repositories. The
+        // registry composes from the registered resolvers at
+        // construction; future phases register additional
+        // ILockReasonResolver implementations alongside these without
+        // disturbing the registry contract.
+        services.AddScoped<ILockReasonResolver, DocumentLockReasonResolver>();
+        services.AddScoped<ILockReasonResolver, DocumentRevisionLockReasonResolver>();
+        services.AddScoped<ILockReasonResolverRegistry, LockReasonResolverRegistry>();
 
         return services;
     }
