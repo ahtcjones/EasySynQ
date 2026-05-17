@@ -1,0 +1,66 @@
+# Dependabot configuration for EasySynQ.
+#
+# Two ecosystems tracked:
+#   1. NuGet — the project's runtime + test dependencies.
+#   2. GitHub Actions — versions of the actions used in
+#      .github/workflows/.
+#
+# Schedule is weekly (Saturday) to limit PR noise. Patch and minor
+# updates are grouped so a single PR covers multiple non-major
+# updates; major-version bumps are kept separate so the breaking-
+# change review surface is one PR per major bump.
+#
+# Per CLAUDE.md non-negotiable rule 9 ("No new dependencies without
+# flagging it first"), dependabot PRs that introduce a NEW package
+# are out of scope — dependabot only updates existing version pins.
+# Adding a brand-new package still goes through the human review
+# this project's discipline calls for.
+#
+# Open-pull-requests-limit caps per-ecosystem queue depth so a
+# stagnant queue doesn't pile up indefinitely during long pauses
+# between active development sessions.
+
+version: 2
+
+updates:
+  - package-ecosystem: nuget
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: saturday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 5
+    groups:
+      patch-and-minor:
+        applies-to: version-updates
+        update-types:
+          - patch
+          - minor
+    labels:
+      - dependencies
+      - nuget
+    commit-message:
+      prefix: deps
+      include: scope
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: saturday
+      time: "06:00"
+      timezone: America/Chicago
+    open-pull-requests-limit: 5
+    groups:
+      patch-and-minor:
+        applies-to: version-updates
+        update-types:
+          - patch
+          - minor
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: deps(ci)
+      include: scope

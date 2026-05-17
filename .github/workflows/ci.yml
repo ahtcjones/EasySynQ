@@ -1,0 +1,81 @@
+# Continuous integration for EasySynQ.
+#
+# Triggers on push to main and on every PR targeting main. Runs the
+# full build + test suite on a Windows runner because the
+# EasySynQ.UI and EasySynQ.Tests projects target net10.0-windows
+# (the WPF project's <UseWPF>true</UseWPF> and the test project's
+# unit tests for view-models / converters / WPF lifecycle code).
+#
+# Pipeline shape:
+#   1. Checkout the commit being tested.
+#   2. Set up the .NET SDK pinned by global.json.
+#   3. Restore NuGet packages (cached across runs for speed).
+#   4. Build the solution with TreatWarningsAsErrors honored.
+#   5. Run the test suite; upload TRX results as a workflow artifact
+#      so failures can be inspected without re-running locally.
+#
+# Test stability note: CLAUDE.md's "Test stability verification"
+# section calls for 5x stress when a change touches test
+# infrastructure. CI runs once per push as the standard gate; the
+# 5x stress is the developer's responsibility before opening a PR
+# (and the scripts/stress-test.ps1 helper supports that workflow).
+# A separate manually-triggered stability workflow can be added if
+# the queue ever shows flakiness — for now, one run per push is
+# the right balance.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and test
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/Directory.Build.props', 'global.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore
+        run: dotnet restore EasySynQ.slnx
+
+      - name: Build
+        run: dotnet build EasySynQ.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: >-
+          dotnet test src/EasySynQ.Tests/EasySynQ.Tests.csproj
+          --configuration Release
+          --no-build
+          --logger "trx;LogFileName=TestResults.trx"
+          --results-directory TestResults
+          --
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/
+          retention-days: 14
